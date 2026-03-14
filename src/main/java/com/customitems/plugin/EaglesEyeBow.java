@@ -1,6 +1,7 @@
 package com.customitems.plugin;
 
 import org.bukkit.*;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
@@ -17,23 +18,26 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // Normal shot — display HP ÷ 5 = vanilla HP
-    private static final double NORMAL_MIN = 14.0 / 5.0;  // 14 display HP
-    private static final double NORMAL_MID = 25.0 / 5.0;  // 25 display HP
-    private static final double NORMAL_MAX = 36.0 / 5.0;  // 36 display HP
+    // Normal shots — display HP ÷ 5 = vanilla HP
+    private static final double NORMAL_MIN = 14.0 / 5.0;
+    private static final double NORMAL_MID = 25.0 / 5.0;
+    private static final double NORMAL_MAX = 36.0 / 5.0;
 
-    // Gaze shot (ability active) — scales with draw force
-    private static final double GAZE_MIN   = 28.0 / 5.0;  // 28 display HP
-    private static final double GAZE_MID   = 50.0 / 5.0;  // 50 display HP
-    private static final double GAZE_MAX   = 72.0 / 5.0;  // 72 display HP
+    // Gaze shots — display HP ÷ 5 = vanilla HP
+    private static final double GAZE_MIN   = 28.0 / 5.0;
+    private static final double GAZE_MID   = 50.0 / 5.0;
+    private static final double GAZE_MAX   = 72.0 / 5.0;
 
-    private static final long GAZE_COOLDOWN_MS = 20 * 1000L;
+    // Per Power level: +1 display HP = +0.2 vanilla HP
+    private static final double POWER_BONUS_PER_LEVEL = 0.2;
+
+    private static final long GAZE_COOLDOWN_MS = 60 * 1000L; // 60 seconds
     private static final long MARK_DURATION_MS = 10 * 1000L;
     private static final long ARM_WINDOW_TICKS = 200L;
 
-    public static final String META_EAGLES_EYE   = "eagles_eye_arrow"; // on ALL our arrows
-    public static final String META_GAZE_ARROW   = "gaze_arrow";
-    public static final String META_HOMING_ARROW = "homing_arrow";
+    public static final String META_EAGLES_EYE    = "eagles_eye_arrow";
+    public static final String META_GAZE_ARROW    = "gaze_arrow";
+    public static final String META_HOMING_ARROW  = "homing_arrow";
     public static final String META_NORMAL_DAMAGE = "eagles_eye_damage";
 
     private static final Map<UUID, Long>         gazeCooldowns = new HashMap<>();
@@ -60,12 +64,14 @@ public class EaglesEyeBow {
             "\u00a77Mark your next target. For \u00a7610 seconds\u00a77",
             "\u00a77all arrows home in on the marked target.",
             "\u00a77Gaze damage scales: \u00a7a28 / 50 / 72 HP",
-            "\u00a7a\u00a7lCooldown: \u00a7220s",
+            "\u00a7a\u00a7lCooldown: \u00a7260s",
             "",
             "\u00a76\u00a7lLEGENDARY BOW"
         ));
+        // Hide vanilla attributes AND enchant names from tooltip
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         item.setItemMeta(meta);
         return item;
     }
@@ -76,6 +82,19 @@ public class EaglesEyeBow {
         ItemMeta meta = item.getItemMeta();
         return meta != null && meta.hasDisplayName()
                 && meta.getDisplayName().equals(BOW_NAME);
+    }
+
+    // ── Damage scaling ────────────────────────────────────────────────────────
+    private static double scaleDamage(float force, double min, double mid,
+                                      double max, int powerLevel) {
+        double base;
+        if (force < 0.5f) {
+            base = min + (mid - min) * (force / 0.5);
+        } else {
+            base = mid + (max - mid) * ((force - 0.5) / 0.5);
+        }
+        // +1 display HP (+0.2 vanilla HP) per Power level
+        return base + (powerLevel * POWER_BONUS_PER_LEVEL);
     }
 
     // ── Eagle's Gaze ability ──────────────────────────────────────────────────
@@ -105,11 +124,12 @@ public class EaglesEyeBow {
     }
 
     // ── Arrow shoot ───────────────────────────────────────────────────────────
-    public static void onArrowShoot(Player player, Arrow arrow,
-                                    float force, CustomItemsPlugin plugin) {
+    // bow parameter passed in so we can read Power enchant level
+    public static void onArrowShoot(Player player, Arrow arrow, float force,
+                                    ItemStack bow, CustomItemsPlugin plugin) {
         UUID uuid = player.getUniqueId();
+        int powerLevel = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        // Tag ALL Eagle's Eye arrows so the hit handler always catches them
         arrow.setMetadata(META_EAGLES_EYE,
                 new FixedMetadataValue(plugin, uuid.toString()));
 
@@ -118,39 +138,37 @@ public class EaglesEyeBow {
             armed.remove(uuid);
             arrow.setMetadata(META_GAZE_ARROW,
                     new FixedMetadataValue(plugin, uuid.toString()));
-            // Store force for scaled gaze damage
+            // Store force + power level for damage calculation on hit
             arrow.setMetadata(META_NORMAL_DAMAGE,
-                    new FixedMetadataValue(plugin, (double) force));
+                    new FixedMetadataValue(plugin, encodeForcePower(force, powerLevel)));
             player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
             return;
         }
 
-        // Homing shot — target already marked
+        // Homing shot
         LivingEntity target = markedTargets.get(uuid);
         if (target != null && !target.isDead()
                 && System.currentTimeMillis() < markExpiry.getOrDefault(uuid, 0L)) {
             arrow.setMetadata(META_HOMING_ARROW,
                     new FixedMetadataValue(plugin, uuid.toString()));
-            // Store force for scaled gaze damage
             arrow.setMetadata(META_NORMAL_DAMAGE,
-                    new FixedMetadataValue(plugin, (double) force));
+                    new FixedMetadataValue(plugin, encodeForcePower(force, powerLevel)));
             homingArrows.add(arrow.getUniqueId());
             startHomingTask(arrow, target, plugin);
             return;
         }
 
-        // Normal scaled shot — store calculated damage
-        double damage = scaleDamage(force, NORMAL_MIN, NORMAL_MID, NORMAL_MAX);
+        // Normal shot
+        double damage = scaleDamage(force, NORMAL_MIN, NORMAL_MID, NORMAL_MAX, powerLevel);
         arrow.setMetadata(META_NORMAL_DAMAGE,
                 new FixedMetadataValue(plugin, damage));
     }
 
-    // ── Arrow hit entity ──────────────────────────────────────────────────────
+    // ── Arrow hits entity ─────────────────────────────────────────────────────
     public static void onArrowHitEntity(Arrow arrow, LivingEntity hit,
                                         Player shooter, CustomItemsPlugin plugin) {
         UUID uuid = shooter.getUniqueId();
 
-        // Gaze marking arrow — mark the target
         if (arrow.hasMetadata(META_GAZE_ARROW)) {
             arrow.remove();
             markedTargets.put(uuid, hit);
@@ -161,9 +179,10 @@ public class EaglesEyeBow {
                     PotionEffectType.GLOWING,
                     (int)(MARK_DURATION_MS / 50L), 0, false, false));
 
-            // Gaze first hit: scaled damage from stored force
-            double force  = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
-            double damage = scaleDamage((float) force, GAZE_MIN, GAZE_MID, GAZE_MAX);
+            double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
+            float  force  = decodedForce(stored);
+            int    power  = decodedPower(stored);
+            double damage = scaleDamage(force, GAZE_MIN, GAZE_MID, GAZE_MAX, power);
             hit.damage(damage, shooter);
 
             shooter.sendMessage("\u00a76\u00a7lTarget marked! \u00a7fAll arrows home for 10 seconds.");
@@ -181,17 +200,17 @@ public class EaglesEyeBow {
             return;
         }
 
-        // Homing arrow — gaze scaled damage
         if (arrow.hasMetadata(META_HOMING_ARROW)) {
             homingArrows.remove(arrow.getUniqueId());
-            double force  = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
-            double damage = scaleDamage((float) force, GAZE_MIN, GAZE_MID, GAZE_MAX);
+            double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
+            float  force  = decodedForce(stored);
+            int    power  = decodedPower(stored);
+            double damage = scaleDamage(force, GAZE_MIN, GAZE_MID, GAZE_MAX, power);
             arrow.remove();
             hit.damage(damage, shooter);
             return;
         }
 
-        // Normal arrow
         if (arrow.hasMetadata(META_NORMAL_DAMAGE)) {
             double damage = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
             arrow.remove();
@@ -199,13 +218,18 @@ public class EaglesEyeBow {
         }
     }
 
-    // ── Damage scaling helper ─────────────────────────────────────────────────
-    private static double scaleDamage(float force, double min, double mid, double max) {
-        if (force < 0.5f) {
-            return min + (mid - min) * (force / 0.5);
-        } else {
-            return mid + (max - mid) * ((force - 0.5) / 0.5);
-        }
+    // ── Encode force + power level into one double for metadata storage ────────
+    // format: force (0.0–1.0) + powerLevel (integer) stored as force + powerLevel * 10
+    private static double encodeForcePower(float force, int powerLevel) {
+        return force + powerLevel * 10.0;
+    }
+
+    private static float decodedForce(double encoded) {
+        return (float)(encoded % 10.0);
+    }
+
+    private static int decodedPower(double encoded) {
+        return (int)(encoded / 10.0);
     }
 
     // ── Homing task ───────────────────────────────────────────────────────────

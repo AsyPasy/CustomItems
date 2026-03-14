@@ -1,0 +1,18 @@
+name: CustomItems
+main: com.customitems.plugin.CustomItemsPlugin
+version: 1.0.0
+api-version: 1.20
+description: Adds Valor Dagger and Eagle's Eye Bow custom items.
+
+commands:
+  valuedagger:
+    description: Give yourself the Valor Dagger
+    default: op
+  eagleseyebow:
+    description: Give yourself the Eagle's Eye Bow
+    default: op
+
+permissions:
+  customitems.give:
+    description: Access to item give commands
+    default: op

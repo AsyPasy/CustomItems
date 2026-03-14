@@ -19,15 +19,17 @@ public class ValorDagger {
 
     public static final String VALOR_DAGGER_NAME = "\u00a7f\u00a7lValor Dagger";
 
-    private static final int    BASE_TICKS       = 200;
-    private static final double BUFF_RADIUS      = 10.0;
-    private static final double HP_BONUS_PERCENT = 0.05;
-    private static final long   COOLDOWN_MS      = 60 * 1000L;
+    private static final int    BASE_TICKS            = 200;
+    private static final double BUFF_RADIUS           = 10.0;
+    private static final double HP_BONUS_PERCENT      = 0.05;
+    private static final long   COOLDOWN_MS           = 60 * 1000L;
 
-    // Base: 10 display HP = 2 vanilla HP
-    public static final double BASE_ATTACK_DAMAGE = 2.0;
-    // Per Sharpness level: +1 display HP = +0.2 vanilla HP
-    public static final double SHARPNESS_BONUS_PER_LEVEL = 0.2;
+    // 2.5 vanilla hearts = 5.0 vanilla HP (no crit)
+    // 4.0 vanilla hearts = 8.0 vanilla HP (crit)
+    public static final double BASE_DAMAGE      = 5.0;
+    public static final double CRIT_DAMAGE      = 8.0;
+    // +1 display HP = +0.2 vanilla HP per Sharpness level
+    public static final double SHARPNESS_BONUS  = 0.2;
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -35,8 +37,14 @@ public class ValorDagger {
     // ── Item ──────────────────────────────────────────────────────────────────
     public static ItemStack createValorDagger() {
         ItemStack item = new ItemStack(Material.IRON_SWORD);
+        applyMeta(item);
+        return item;
+    }
+
+    // Separated so we can re-apply flags after enchanting
+    public static void applyMeta(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
-        if (meta == null) return item;
+        if (meta == null) return;
         meta.setDisplayName(VALOR_DAGGER_NAME);
         meta.setCustomModelData(292387);
         meta.setUnbreakable(true);
@@ -49,12 +57,10 @@ public class ValorDagger {
             "\u00a77and \u00a7fStrength I \u00a77in a \u00a7f10 block\u00a77 radius.",
             "\u00a7a\u00a7lCooldown: \u00a7260s"
         ));
-        // Hide vanilla attribute tooltip ("When in Main Hand") and enchant names
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         item.setItemMeta(meta);
-        return item;
     }
 
     public static boolean isValorDagger(ItemStack item) {
@@ -65,11 +71,19 @@ public class ValorDagger {
                 && meta.getDisplayName().equals(VALOR_DAGGER_NAME);
     }
 
-    // ── Damage with Sharpness bonus ───────────────────────────────────────────
-    // +1 display HP (+0.2 vanilla HP) per Sharpness level
-    public static double calculateDamage(ItemStack item) {
-        int sharpnessLevel = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
-        return BASE_ATTACK_DAMAGE + (sharpnessLevel * SHARPNESS_BONUS_PER_LEVEL);
+    // ── Damage calculation ────────────────────────────────────────────────────
+    public static double calculateDamage(ItemStack item, boolean isCrit) {
+        int sharpness = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
+        double base = isCrit ? CRIT_DAMAGE : BASE_DAMAGE;
+        return base + (sharpness * SHARPNESS_BONUS);
+    }
+
+    // ── Crit detection ────────────────────────────────────────────────────────
+    public static boolean isCriticalHit(Player player) {
+        return player.getFallDistance() > 0.0f
+                && !player.isOnGround()
+                && !player.isSprinting()
+                && !player.hasPotionEffect(PotionEffectType.BLINDNESS);
     }
 
     // ── Activation ────────────────────────────────────────────────────────────
@@ -163,7 +177,7 @@ public class ValorDagger {
             @Override public void run() {
                 if (tick >= 40) { cancel(); return; }
                 for (int i = 0; i < 20; i++) {
-                    double a   = (Math.PI * 2.0 / 20) * i + (tick * 0.1);
+                    double a = (Math.PI * 2.0 / 20) * i + (tick * 0.1);
                     Location loc = player.getLocation().clone()
                             .add(Math.cos(a) * BUFF_RADIUS, 1.0, Math.sin(a) * BUFF_RADIUS);
                     player.getWorld().spawnParticle(Particle.TOTEM, loc, 1, 0, 0, 0, 0);

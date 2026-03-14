@@ -15,7 +15,7 @@ public class ItemListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Right-click detection ─────────────────────────────────────────────────
+    // ── Right-click ───────────────────────────────────────────────────────────
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR
@@ -24,18 +24,25 @@ public class ItemListener implements Listener {
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
 
-        // Valor Dagger
         if (ValorDagger.isValorDagger(item)) {
             event.setCancelled(true);
             ValorDagger.activate(player, plugin);
             return;
         }
 
-        // Eagle's Eye Bow — SNEAK + RIGHT CLICK activates gaze
         if (EaglesEyeBow.isEaglesEyeBow(item) && player.isSneaking()) {
             event.setCancelled(true);
             EaglesEyeBow.activateGaze(player, plugin);
         }
+    }
+
+    // ── Valor Dagger melee damage — fixed to 10 display HP (2 vanilla) ────────
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onValorDaggerHit(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Player player)) return;
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (!ValorDagger.isValorDagger(held)) return;
+        event.setDamage(ValorDagger.ATTACK_DAMAGE); // exactly 2 vanilla = 10 display HP
     }
 
     // ── Bow shoot ─────────────────────────────────────────────────────────────
@@ -45,23 +52,20 @@ public class ItemListener implements Listener {
         if (!EaglesEyeBow.isEaglesEyeBow(event.getBow())) return;
         if (!(event.getProjectile() instanceof Arrow arrow)) return;
 
-        // Cancel vanilla damage — we handle it ourselves
+        // Zero out vanilla damage — we control it entirely
         arrow.setDamage(0);
         EaglesEyeBow.onArrowShoot(player, arrow, event.getForce(), plugin);
     }
 
     // ── Arrow hits entity ─────────────────────────────────────────────────────
     @EventHandler(priority = EventPriority.HIGH)
-    public void onArrowHit(EntityDamageByEntityEvent event) {
+    public void onArrowHitEntity(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Arrow arrow)) return;
         if (!(arrow.getShooter() instanceof Player shooter)) return;
         if (!(event.getEntity() instanceof LivingEntity hit)) return;
 
-        boolean isGaze   = arrow.hasMetadata(EaglesEyeBow.META_GAZE_ARROW);
-        boolean isHoming = arrow.hasMetadata(EaglesEyeBow.META_HOMING_ARROW);
-        boolean isNormal = arrow.hasMetadata(EaglesEyeBow.META_NORMAL_DAMAGE);
-
-        if (!isGaze && !isHoming && !isNormal) return;
+        // Only intercept arrows we tagged — ignores all other arrows
+        if (!arrow.hasMetadata(EaglesEyeBow.META_EAGLES_EYE)) return;
 
         event.setCancelled(true);
         EaglesEyeBow.onArrowHitEntity(arrow, hit, shooter, plugin);

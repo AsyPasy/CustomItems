@@ -1,9 +1,6 @@
 package com.customitems.plugin;
 
-import org.bukkit.Material;
-import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
-import org.bukkit.inventory.ShapedRecipe;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class CustomItemsPlugin extends JavaPlugin {
@@ -14,7 +11,7 @@ public class CustomItemsPlugin extends JavaPlugin {
     public void onEnable() {
         itemListener = new ItemListener(this);
         getServer().getPluginManager().registerEvents(itemListener, this);
-        registerValorDaggerRecipe();
+        // Recipe is handled via PrepareItemCraftEvent — no ShapedRecipe needed
         getLogger().info("CustomItems enabled!");
     }
 
@@ -25,26 +22,10 @@ public class CustomItemsPlugin extends JavaPlugin {
         getLogger().info("CustomItems disabled!");
     }
 
-    // ── Valor Dagger recipe ───────────────────────────────────────────────────
-    // _N_
-    // NGN
-    // _S_
-    // N = Iron Nugget, G = Gold Ingot, S = Stick
-    private void registerValorDaggerRecipe() {
-        NamespacedKey key = new NamespacedKey(this, "valor_dagger");
-        ShapedRecipe recipe = new ShapedRecipe(key, ValorDagger.createValorDagger());
-        recipe.shape(" N ", "NGN", " S ");
-        recipe.setIngredient('N', Material.IRON_NUGGET);
-        recipe.setIngredient('G', Material.GOLD_INGOT);
-        recipe.setIngredient('S', Material.STICK);
-        getServer().addRecipe(recipe);
-    }
-
     @Override
     public boolean onCommand(org.bukkit.command.CommandSender sender,
                              org.bukkit.command.Command command,
-                             String label,
-                             String[] args) {
+                             String label, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Only players can use this command.");
             return true;

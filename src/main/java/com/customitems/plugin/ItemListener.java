@@ -36,25 +36,26 @@ public class ItemListener implements Listener {
         }
     }
 
-    // ── Valor Dagger melee damage — fixed to 10 display HP (2 vanilla) ────────
+    // ── Valor Dagger melee — fixed base + Sharpness bonus ────────────────────
+    // Base: 10 display HP. Sharpness: +1 display HP per level. All ÷5 for vanilla.
     @EventHandler(priority = EventPriority.HIGH)
     public void onValorDaggerHit(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player player)) return;
         ItemStack held = player.getInventory().getItemInMainHand();
         if (!ValorDagger.isValorDagger(held)) return;
-        event.setDamage(ValorDagger.ATTACK_DAMAGE); // exactly 2 vanilla = 10 display HP
+        event.setDamage(ValorDagger.calculateDamage(held));
     }
 
-    // ── Bow shoot ─────────────────────────────────────────────────────────────
+    // ── Bow shoot — passes the bow item for Power enchant reading ─────────────
     @EventHandler
     public void onBowShoot(EntityShootBowEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
-        if (!EaglesEyeBow.isEaglesEyeBow(event.getBow())) return;
+        ItemStack bow = event.getBow();
+        if (!EaglesEyeBow.isEaglesEyeBow(bow)) return;
         if (!(event.getProjectile() instanceof Arrow arrow)) return;
 
-        // Zero out vanilla damage — we control it entirely
-        arrow.setDamage(0);
-        EaglesEyeBow.onArrowShoot(player, arrow, event.getForce(), plugin);
+        arrow.setDamage(0); // zero vanilla damage — we control it entirely
+        EaglesEyeBow.onArrowShoot(player, arrow, event.getForce(), bow, plugin);
     }
 
     // ── Arrow hits entity ─────────────────────────────────────────────────────
@@ -63,8 +64,6 @@ public class ItemListener implements Listener {
         if (!(event.getDamager() instanceof Arrow arrow)) return;
         if (!(arrow.getShooter() instanceof Player shooter)) return;
         if (!(event.getEntity() instanceof LivingEntity hit)) return;
-
-        // Only intercept arrows we tagged — ignores all other arrows
         if (!arrow.hasMetadata(EaglesEyeBow.META_EAGLES_EYE)) return;
 
         event.setCancelled(true);

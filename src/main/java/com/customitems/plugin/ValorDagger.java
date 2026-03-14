@@ -3,6 +3,7 @@ package com.customitems.plugin;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemFlag;
@@ -21,10 +22,12 @@ public class ValorDagger {
     private static final int    BASE_TICKS       = 200;
     private static final double BUFF_RADIUS      = 10.0;
     private static final double HP_BONUS_PERCENT = 0.05;
-    private static final long   COOLDOWN_MS      = 60 * 1000L; // 60 seconds
+    private static final long   COOLDOWN_MS      = 60 * 1000L;
 
-    // 10 display HP = 2 vanilla HP (RPG: 100 display = 20 vanilla, so ÷5)
-    public static final double ATTACK_DAMAGE = 2.0;
+    // Base: 10 display HP = 2 vanilla HP
+    public static final double BASE_ATTACK_DAMAGE = 2.0;
+    // Per Sharpness level: +1 display HP = +0.2 vanilla HP
+    public static final double SHARPNESS_BONUS_PER_LEVEL = 0.2;
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -46,8 +49,10 @@ public class ValorDagger {
             "\u00a77and \u00a7fStrength I \u00a77in a \u00a7f10 block\u00a77 radius.",
             "\u00a7a\u00a7lCooldown: \u00a7260s"
         ));
+        // Hide vanilla attribute tooltip ("When in Main Hand") and enchant names
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         item.setItemMeta(meta);
         return item;
     }
@@ -58,6 +63,13 @@ public class ValorDagger {
         ItemMeta meta = item.getItemMeta();
         return meta != null && meta.hasDisplayName()
                 && meta.getDisplayName().equals(VALOR_DAGGER_NAME);
+    }
+
+    // ── Damage with Sharpness bonus ───────────────────────────────────────────
+    // +1 display HP (+0.2 vanilla HP) per Sharpness level
+    public static double calculateDamage(ItemStack item) {
+        int sharpnessLevel = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
+        return BASE_ATTACK_DAMAGE + (sharpnessLevel * SHARPNESS_BONUS_PER_LEVEL);
     }
 
     // ── Activation ────────────────────────────────────────────────────────────
@@ -92,8 +104,8 @@ public class ValorDagger {
     private static void applyBuffs(Player target) {
         PotionEffectType[] types = {
             PotionEffectType.SPEED,
-            PotionEffectType.JUMP,           // 1.20.x name
-            PotionEffectType.INCREASE_DAMAGE // 1.20.x name
+            PotionEffectType.JUMP,
+            PotionEffectType.INCREASE_DAMAGE
         };
         for (PotionEffectType type : types) {
             PotionEffect existing = target.getPotionEffect(type);
@@ -154,8 +166,7 @@ public class ValorDagger {
                     double a   = (Math.PI * 2.0 / 20) * i + (tick * 0.1);
                     Location loc = player.getLocation().clone()
                             .add(Math.cos(a) * BUFF_RADIUS, 1.0, Math.sin(a) * BUFF_RADIUS);
-                    player.getWorld().spawnParticle(
-                            Particle.TOTEM, loc, 1, 0, 0, 0, 0);
+                    player.getWorld().spawnParticle(Particle.TOTEM, loc, 1, 0, 0, 0, 0);
                 }
                 tick++;
             }

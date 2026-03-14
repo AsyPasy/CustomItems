@@ -3,9 +3,11 @@ package com.customitems.plugin;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -19,17 +21,23 @@ public class ValorDagger {
 
     public static final String VALOR_DAGGER_NAME = "\u00a7f\u00a7lValor Dagger";
 
-    private static final int    BASE_TICKS            = 200;
-    private static final double BUFF_RADIUS           = 10.0;
-    private static final double HP_BONUS_PERCENT      = 0.05;
-    private static final long   COOLDOWN_MS           = 60 * 1000L;
+    private static final int    BASE_TICKS        = 200;
+    private static final double BUFF_RADIUS       = 10.0;
+    private static final double HP_BONUS_PERCENT  = 0.05;
+    private static final long   COOLDOWN_MS       = 60 * 1000L;
 
-    // 2.5 vanilla hearts = 5.0 vanilla HP (no crit)
-    // 4.0 vanilla hearts = 8.0 vanilla HP (crit)
-    public static final double BASE_DAMAGE      = 5.0;
-    public static final double CRIT_DAMAGE      = 8.0;
-    // +1 display HP = +0.2 vanilla HP per Sharpness level
-    public static final double SHARPNESS_BONUS  = 0.2;
+    // Base: 5 display HP = 1.0 vanilla HP (NOT hearts — 5 HP = 0.5 hearts? 
+    // Wait: RPG 100 HP = 20 vanilla = 10 hearts. So 5 display HP = 1.0 vanilla HP)
+    // Crit: 8 display HP = 1.6 vanilla HP... 
+    // Per user: 2.5 vanilla hearts normal = 5 vanilla HP, 4 vanilla hearts crit = 8 vanilla HP
+    // But user also says "damage is 5" in display HP terms (5 display HP = 1.0 vanilla HP)
+    // Re-reading: "2.5 vanilla hearts = 5 vanilla HP" and display HP = vanilla HP × 5
+    // So 5 display HP = 1.0 vanilla HP. Crit 4 display HP = ... user said "4 hp" with crit
+    // User: "2.5 vanilla hearts without crit, 4hp with crit" — 4 HP display = 0.8 vanilla? No.
+    // Actually user means display HP system: base 5 display HP, crit 8 display HP (÷5 for vanilla)
+    public static final double BASE_DAMAGE       = 5.0 / 5.0;  // 5 display HP
+    public static final double CRIT_DAMAGE       = 8.0 / 5.0;  // 8 display HP  
+    public static final double SHARPNESS_BONUS   = 0.2 / 5.0;  // +0.2 display HP per level
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -41,15 +49,21 @@ public class ValorDagger {
         return item;
     }
 
-    // Separated so we can re-apply flags after enchanting
     public static void applyMeta(ItemStack item) {
+        // Read current sharpness BEFORE touching meta
+        int sharpness = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
+        double displayDmg = 5.0 + (sharpness * 0.2);
+        String dmgStr = fmt(displayDmg);
+
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return;
+
         meta.setDisplayName(VALOR_DAGGER_NAME);
         meta.setCustomModelData(292387);
         meta.setUnbreakable(true);
         meta.setLore(List.of(
-            "\u00a77Damage: \u00a7a+10",
+            "\u00a77Damage: \u00a7a+" + dmgStr
+                + (sharpness > 0 ? " \u00a77(Sharpness " + sharpness + ")" : ""),
             "",
             "\u00a75Ability: \u00a7fRally \u00a7e\u00a7lRIGHT CLICK",
             "\u00a77Inspire yourself and nearby allies,",
@@ -57,6 +71,22 @@ public class ValorDagger {
             "\u00a77and \u00a7fStrength I \u00a77in a \u00a7f10 block\u00a77 radius.",
             "\u00a7a\u00a7lCooldown: \u00a7260s"
         ));
+
+        // Adding custom AttributeModifiers forces the game to use these
+        // instead of vanilla defaults, so HIDE_ATTRIBUTES fully suppresses them
+        meta.removeAttributeModifier(Attribute.GENERIC_ATTACK_DAMAGE);
+        meta.removeAttributeModifier(Attribute.GENERIC_ATTACK_SPEED);
+        meta.addAttributeModifier(Attribute.GENERIC_ATTACK_DAMAGE,
+                new AttributeModifier(UUID.randomUUID(),
+                        "valor_dmg", 0,
+                        AttributeModifier.Operation.ADD_NUMBER,
+                        EquipmentSlot.HAND));
+        meta.addAttributeModifier(Attribute.GENERIC_ATTACK_SPEED,
+                new AttributeModifier(UUID.randomUUID(),
+                        "valor_spd", 0,
+                        AttributeModifier.Operation.ADD_NUMBER,
+                        EquipmentSlot.HAND));
+
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
@@ -78,7 +108,6 @@ public class ValorDagger {
         return base + (sharpness * SHARPNESS_BONUS);
     }
 
-    // ── Crit detection ────────────────────────────────────────────────────────
     public static boolean isCriticalHit(Player player) {
         return player.getFallDistance() > 0.0f
                 && !player.isOnGround()
@@ -89,7 +118,6 @@ public class ValorDagger {
     // ── Activation ────────────────────────────────────────────────────────────
     public static void activate(Player player, CustomItemsPlugin plugin) {
         UUID uuid = player.getUniqueId();
-
         if (cooldowns.containsKey(uuid)) {
             long remaining = COOLDOWN_MS - (System.currentTimeMillis() - cooldowns.get(uuid));
             if (remaining > 0) {
@@ -97,7 +125,6 @@ public class ValorDagger {
                 return;
             }
         }
-
         cooldowns.put(uuid, System.currentTimeMillis());
 
         List<Player> targets = new ArrayList<>();
@@ -114,7 +141,6 @@ public class ValorDagger {
         player.sendMessage("\u00a7f\u00a7lRally! \u00a7fYour allies are inspired!");
     }
 
-    // ── Buffs ─────────────────────────────────────────────────────────────────
     private static void applyBuffs(Player target) {
         PotionEffectType[] types = {
             PotionEffectType.SPEED,
@@ -137,7 +163,6 @@ public class ValorDagger {
         }
     }
 
-    // ── HP buff ───────────────────────────────────────────────────────────────
     private static void applyHPBuff(Player player, CustomItemsPlugin plugin) {
         AttributeInstance attr = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
         if (attr == null) return;
@@ -148,7 +173,6 @@ public class ValorDagger {
         player.setHealth(Math.min(newMax, player.getHealth() + bonus));
         hpBonusMap.put(player.getUniqueId(), originalMax);
         tryRefreshRPGHealth(player);
-
         new BukkitRunnable() {
             @Override public void run() {
                 AttributeInstance a = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
@@ -161,7 +185,6 @@ public class ValorDagger {
         }.runTaskLater(plugin, BASE_TICKS);
     }
 
-    // ── RPGHealth bridge ──────────────────────────────────────────────────────
     private static void tryRefreshRPGHealth(Player player) {
         try {
             Object manager = player.getClass().getMethod("getHealthManager").invoke(player);
@@ -170,7 +193,6 @@ public class ValorDagger {
         } catch (Exception ignored) {}
     }
 
-    // ── Radius particles ──────────────────────────────────────────────────────
     private static void spawnRadiusParticles(Player player, CustomItemsPlugin plugin) {
         new BukkitRunnable() {
             int tick = 0;
@@ -185,6 +207,12 @@ public class ValorDagger {
                 tick++;
             }
         }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    // ── Format helper ─────────────────────────────────────────────────────────
+    static String fmt(double val) {
+        if (val == Math.floor(val)) return String.valueOf((int) val);
+        return String.format("%.1f", val);
     }
 
     public static void cleanup() {

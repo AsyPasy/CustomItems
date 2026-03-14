@@ -94,7 +94,7 @@ public class ValorDagger {
         PotionEffectType[] types = {
             PotionEffectType.SPEED,
             PotionEffectType.JUMP_BOOST,
-            PotionEffectType.STRENGTH
+            PotionEffectType.INCREASE_DAMAGE
         };
         for (PotionEffectType type : types) {
             PotionEffect existing = target.getPotionEffect(type);
@@ -156,7 +156,7 @@ public class ValorDagger {
                     Location loc = player.getLocation().clone()
                             .add(Math.cos(a) * BUFF_RADIUS, 1.0, Math.sin(a) * BUFF_RADIUS);
                     player.getWorld().spawnParticle(
-                            Particle.TOTEM_OF_UNDYING, loc, 1, 0, 0, 0, 0);
+                            Particle.TOTEM, loc, 1, 0, 0, 0, 0);
                 }
                 tick++;
             }

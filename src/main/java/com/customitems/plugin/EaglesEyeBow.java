@@ -18,20 +18,16 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // Normal shots — display HP ÷ 5 = vanilla HP
     private static final double NORMAL_MIN = 14.0 / 5.0;
     private static final double NORMAL_MID = 25.0 / 5.0;
     private static final double NORMAL_MAX = 36.0 / 5.0;
-
-    // Gaze shots — display HP ÷ 5 = vanilla HP
     private static final double GAZE_MIN   = 28.0 / 5.0;
     private static final double GAZE_MID   = 50.0 / 5.0;
     private static final double GAZE_MAX   = 72.0 / 5.0;
 
-    // Per Power level: +1 display HP = +0.2 vanilla HP
     private static final double POWER_BONUS_PER_LEVEL = 0.2;
 
-    private static final long GAZE_COOLDOWN_MS = 60 * 1000L; // 60 seconds
+    private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
     private static final long MARK_DURATION_MS = 10 * 1000L;
     private static final long ARM_WINDOW_TICKS = 200L;
 
@@ -49,8 +45,14 @@ public class EaglesEyeBow {
     // ── Item ──────────────────────────────────────────────────────────────────
     public static ItemStack createEaglesEyeBow() {
         ItemStack item = new ItemStack(Material.BOW);
+        applyMeta(item);
+        return item;
+    }
+
+    // Separated so we can re-apply flags after enchanting
+    public static void applyMeta(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
-        if (meta == null) return item;
+        if (meta == null) return;
         meta.setDisplayName(BOW_NAME);
         meta.setCustomModelData(293001);
         meta.setUnbreakable(true);
@@ -68,12 +70,10 @@ public class EaglesEyeBow {
             "",
             "\u00a76\u00a7lLEGENDARY BOW"
         ));
-        // Hide vanilla attributes AND enchant names from tooltip
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
         meta.addItemFlags(ItemFlag.HIDE_ENCHANTS);
         item.setItemMeta(meta);
-        return item;
     }
 
     public static boolean isEaglesEyeBow(ItemStack item) {
@@ -93,7 +93,6 @@ public class EaglesEyeBow {
         } else {
             base = mid + (max - mid) * ((force - 0.5) / 0.5);
         }
-        // +1 display HP (+0.2 vanilla HP) per Power level
         return base + (powerLevel * POWER_BONUS_PER_LEVEL);
     }
 
@@ -124,7 +123,6 @@ public class EaglesEyeBow {
     }
 
     // ── Arrow shoot ───────────────────────────────────────────────────────────
-    // bow parameter passed in so we can read Power enchant level
     public static void onArrowShoot(Player player, Arrow arrow, float force,
                                     ItemStack bow, CustomItemsPlugin plugin) {
         UUID uuid = player.getUniqueId();
@@ -133,19 +131,16 @@ public class EaglesEyeBow {
         arrow.setMetadata(META_EAGLES_EYE,
                 new FixedMetadataValue(plugin, uuid.toString()));
 
-        // Gaze marking shot
         if (Boolean.TRUE.equals(armed.get(uuid))) {
             armed.remove(uuid);
             arrow.setMetadata(META_GAZE_ARROW,
                     new FixedMetadataValue(plugin, uuid.toString()));
-            // Store force + power level for damage calculation on hit
             arrow.setMetadata(META_NORMAL_DAMAGE,
                     new FixedMetadataValue(plugin, encodeForcePower(force, powerLevel)));
             player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
             return;
         }
 
-        // Homing shot
         LivingEntity target = markedTargets.get(uuid);
         if (target != null && !target.isDead()
                 && System.currentTimeMillis() < markExpiry.getOrDefault(uuid, 0L)) {
@@ -158,7 +153,6 @@ public class EaglesEyeBow {
             return;
         }
 
-        // Normal shot
         double damage = scaleDamage(force, NORMAL_MIN, NORMAL_MID, NORMAL_MAX, powerLevel);
         arrow.setMetadata(META_NORMAL_DAMAGE,
                 new FixedMetadataValue(plugin, damage));
@@ -174,20 +168,14 @@ public class EaglesEyeBow {
             markedTargets.put(uuid, hit);
             markExpiry.put(uuid, System.currentTimeMillis() + MARK_DURATION_MS);
             gazeCooldowns.put(uuid, System.currentTimeMillis());
-
             hit.addPotionEffect(new PotionEffect(
                     PotionEffectType.GLOWING,
                     (int)(MARK_DURATION_MS / 50L), 0, false, false));
-
             double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
-            float  force  = decodedForce(stored);
-            int    power  = decodedPower(stored);
-            double damage = scaleDamage(force, GAZE_MIN, GAZE_MID, GAZE_MAX, power);
+            double damage = scaleDamage(decodedForce(stored), GAZE_MIN, GAZE_MID, GAZE_MAX, decodedPower(stored));
             hit.damage(damage, shooter);
-
             shooter.sendMessage("\u00a76\u00a7lTarget marked! \u00a7fAll arrows home for 10 seconds.");
-            shooter.getWorld().playSound(shooter.getLocation(),
-                    Sound.ENTITY_ARROW_HIT, 1f, 0.5f);
+            shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_ARROW_HIT, 1f, 0.5f);
 
             new BukkitRunnable() {
                 @Override public void run() {
@@ -203,9 +191,7 @@ public class EaglesEyeBow {
         if (arrow.hasMetadata(META_HOMING_ARROW)) {
             homingArrows.remove(arrow.getUniqueId());
             double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
-            float  force  = decodedForce(stored);
-            int    power  = decodedPower(stored);
-            double damage = scaleDamage(force, GAZE_MIN, GAZE_MID, GAZE_MAX, power);
+            double damage = scaleDamage(decodedForce(stored), GAZE_MIN, GAZE_MID, GAZE_MAX, decodedPower(stored));
             arrow.remove();
             hit.damage(damage, shooter);
             return;
@@ -218,19 +204,12 @@ public class EaglesEyeBow {
         }
     }
 
-    // ── Encode force + power level into one double for metadata storage ────────
-    // format: force (0.0–1.0) + powerLevel (integer) stored as force + powerLevel * 10
+    // ── Encode/decode force + power into single double ────────────────────────
     private static double encodeForcePower(float force, int powerLevel) {
         return force + powerLevel * 10.0;
     }
-
-    private static float decodedForce(double encoded) {
-        return (float)(encoded % 10.0);
-    }
-
-    private static int decodedPower(double encoded) {
-        return (int)(encoded / 10.0);
-    }
+    private static float decodedForce(double encoded) { return (float)(encoded % 10.0); }
+    private static int   decodedPower(double encoded)  { return (int)(encoded / 10.0); }
 
     // ── Homing task ───────────────────────────────────────────────────────────
     private static void startHomingTask(Arrow arrow, LivingEntity target,
@@ -246,12 +225,9 @@ public class EaglesEyeBow {
                 Vector current  = arrow.getVelocity();
                 double speed    = current.length();
                 Vector toTarget = target.getLocation().add(0, 1, 0).toVector()
-                        .subtract(arrow.getLocation().toVector())
-                        .normalize();
+                        .subtract(arrow.getLocation().toVector()).normalize();
                 Vector newDir = current.normalize().multiply(0.6)
-                        .add(toTarget.multiply(0.4))
-                        .normalize()
-                        .multiply(speed + 0.1);
+                        .add(toTarget.multiply(0.4)).normalize().multiply(speed + 0.1);
                 arrow.setVelocity(newDir);
             }
         }.runTaskTimer(plugin, 1L, 1L);

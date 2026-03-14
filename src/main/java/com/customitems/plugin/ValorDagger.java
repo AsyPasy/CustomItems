@@ -18,10 +18,10 @@ public class ValorDagger {
 
     public static final String VALOR_DAGGER_NAME = "\u00a76\u00a7lValor Dagger";
 
-    private static final int    BASE_TICKS       = 200;         // 10 seconds
+    private static final int    BASE_TICKS       = 200;
     private static final double BUFF_RADIUS      = 10.0;
     private static final double HP_BONUS_PERCENT = 0.05;
-    private static final long   COOLDOWN_MS      = 30 * 1000L; // 30 seconds
+    private static final long   COOLDOWN_MS      = 30 * 1000L;
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -33,6 +33,7 @@ public class ValorDagger {
         if (meta == null) return item;
         meta.setDisplayName(VALOR_DAGGER_NAME);
         meta.setCustomModelData(292387);
+        // Unbreakable — no durability loss
         meta.setUnbreakable(true);
         meta.setLore(List.of(
             "\u00a77Damage: \u00a7a+10",
@@ -48,6 +49,7 @@ public class ValorDagger {
         ));
         meta.addItemFlags(ItemFlag.HIDE_ATTRIBUTES);
         meta.addItemFlags(ItemFlag.HIDE_UNBREAKABLE);
+        // HIDE_ENCHANTS intentionally omitted so enchantments display correctly
         item.setItemMeta(meta);
         return item;
     }
@@ -74,7 +76,6 @@ public class ValorDagger {
 
         cooldowns.put(uuid, System.currentTimeMillis());
 
-        // Collect player + nearby allies
         List<Player> targets = new ArrayList<>();
         targets.add(player);
         for (Entity e : player.getNearbyEntities(BUFF_RADIUS, BUFF_RADIUS, BUFF_RADIUS)) {
@@ -91,10 +92,11 @@ public class ValorDagger {
 
     // ── Buffs ─────────────────────────────────────────────────────────────────
     private static void applyBuffs(Player target) {
+        // 1.20.x correct enum names
         PotionEffectType[] types = {
             PotionEffectType.SPEED,
-            PotionEffectType.JUMP_BOOST,
-            PotionEffectType.INCREASE_DAMAGE
+            PotionEffectType.JUMP,           // JUMP_BOOST in 1.21+
+            PotionEffectType.INCREASE_DAMAGE // STRENGTH in 1.21+
         };
         for (PotionEffectType type : types) {
             PotionEffect existing = target.getPotionEffect(type);
@@ -156,7 +158,7 @@ public class ValorDagger {
                     Location loc = player.getLocation().clone()
                             .add(Math.cos(a) * BUFF_RADIUS, 1.0, Math.sin(a) * BUFF_RADIUS);
                     player.getWorld().spawnParticle(
-                            Particle.TOTEM, loc, 1, 0, 0, 0, 0);
+                            Particle.TOTEM, loc, 1, 0, 0, 0, 0); // TOTEM_OF_UNDYING in 1.21+
                 }
                 tick++;
             }

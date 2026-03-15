@@ -49,19 +49,6 @@ public class EagleBossListener implements Listener {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-// ── Boss attacks ignore Protection enchantments only ─────────────────────
-// Armor reduction is kept — only enchantment-based magic reduction is zeroed
-@EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
-public void onBossDamagePlayer(EntityDamageByEntityEvent event) {
-    if (!(event.getDamager() instanceof Phantom phantom)) return;
-    if (!phantom.hasMetadata(EagleBoss.META_EAGLE_BOSS)) return;
-    if (!(event.getEntity() instanceof Player)) return;
-
-    // Only remove the MAGIC modifier (Protection enchantments)
-    // ARMOR modifier is left untouched — armor still reduces damage normally
-    if (event.isApplicable(EntityDamageEvent.DamageModifier.MAGIC))
-        event.setDamage(EntityDamageEvent.DamageModifier.MAGIC, 0);
-}
 
     // ── Feather hits block — remove it ────────────────────────────────────────
     @EventHandler

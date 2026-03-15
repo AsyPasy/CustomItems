@@ -16,9 +16,9 @@ public class EagleBoss {
     public static final String META_EAGLE_BOSS    = "eagle_boss";
     public static final String META_EAGLE_FEATHER = "eagle_feather";
 
-    private static final double MAX_HP_DISPLAY = 12500.0;
-    private static final double MAX_HP_VANILLA = 2500.0;
-
+    private static final double MAX_HP_DISPLAY = 5120.0; // 1024 vanilla HP × 5 — Spigot's hard cap
+    private static final double MAX_HP_VANILLA = 1024.0; // maximum allowed by Spigot 1.20.x
+    
     private final CustomItemsPlugin plugin;
     private final Phantom phantom;
     private boolean alive = false;

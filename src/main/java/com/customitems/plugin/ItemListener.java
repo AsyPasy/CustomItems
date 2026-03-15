@@ -69,8 +69,10 @@ public class ItemListener implements Listener {
         EaglesEyeBow.onArrowHitEntity(arrow, hit, shooter, plugin);
     }
 
-    // ── Crafting: Valor Dagger (12 gold ingots) ───────────────────────────────
-    // Pattern:  _ N _  /  N G N  /  _ S _
+    // ── Crafting: Valor Dagger ────────────────────────────────────────────────
+    // [ ] [N] [ ]
+    // [N] [G×12] [N]
+    // [ ] [S] [ ]
     @EventHandler
     public void onPrepareCraft(PrepareItemCraftEvent event) {
         CraftingInventory inv = event.getInventory();
@@ -82,7 +84,6 @@ public class ItemListener implements Listener {
         } else if (isEaglesBowPattern(m)) {
             inv.setResult(EaglesEyeBow.createEaglesEyeBow());
         } else {
-            // Clear result if pattern almost matched but not quite
             if (wouldMatchEither(inv.getResult())) {
                 inv.setResult(new ItemStack(Material.AIR));
             }
@@ -134,7 +135,7 @@ public class ItemListener implements Listener {
     // [N] [G×12] [N]
     // [ ] [S] [ ]
     private boolean isValorDaggerPattern(ItemStack[] m) {
-        return empty(m[0]) && is(m[1], Material.IRON_NUGGET)  && empty(m[2])
+        return empty(m[0]) && is(m[1], Material.IRON_NUGGET) && empty(m[2])
             && is(m[3], Material.IRON_NUGGET)
             && isGoldStack(m[4], 12)
             && is(m[5], Material.IRON_NUGGET)
@@ -142,14 +143,16 @@ public class ItemListener implements Listener {
     }
 
     // Eagle's Eye Bow:
-    // [E] [S] [E]
-    // [S] [ ] [S]
-    // [E] [S] [E]
-    // E = Eagle's Eye item, S = String
+    // [ ] [E] [ ]
+    // [S] [B] [S]
+    // [ ] [E] [ ]
+    // E = Eagle's Eye, B = Bow, S = String
     private boolean isEaglesBowPattern(ItemStack[] m) {
-        return isEye(m[0]) && is(m[1], Material.STRING) && isEye(m[2])
-            && is(m[3], Material.STRING) && empty(m[4]) && is(m[5], Material.STRING)
-            && isEye(m[6]) && is(m[7], Material.STRING) && isEye(m[8]);
+        return empty(m[0]) && isEye(m[1])            && empty(m[2])
+            && is(m[3], Material.STRING)
+            && is(m[4], Material.BOW)
+            && is(m[5], Material.STRING)
+            && empty(m[6]) && isEye(m[7])            && empty(m[8]);
     }
 
     private boolean wouldMatchEither(ItemStack result) {

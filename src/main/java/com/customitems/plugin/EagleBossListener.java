@@ -19,7 +19,7 @@ public class EagleBossListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Natural spawn: 1/2000 above Y 150 ────────────────────────────────────
+    // ── Natural spawn ─────────────────────────────────────────────────────────
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
@@ -42,63 +42,17 @@ public class EagleBossListener implements Listener {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Intercept ALL damage to boss — cancel vanilla, apply to virtual HP ────
-    @EventHandler(priority = EventPriority.HIGHEST)
-    public void onBossDamaged(EntityDamageEvent event) {
-        if (!(event.getEntity() instanceof Phantom p)) return;
-        if (!p.hasMetadata(EagleBoss.META_EAGLE_BOSS)) return;
-
-        EagleBoss boss = activeBosses.get(p.getUniqueId());
-        if (boss == null) return;
-
-        // Cancel vanilla HP loss — we control virtual HP
-        event.setCancelled(true);
-
-        // Only player damage counts
-        if (event instanceof EntityDamageByEntityEvent edbe) {
-            Entity damager  = edbe.getDamager();
-            double damage   = edbe.getDamage();
-
-            boolean isPlayerArrow  = damager instanceof Arrow a
-                                  && a.getShooter() instanceof Player;
-            boolean isPlayerMelee  = damager instanceof Player;
-
-            if (isPlayerArrow || isPlayerMelee) {
-                if (boss.applyVirtualDamage(damage)) {
-                    triggerDeath(p, boss);
-                }
-            }
-        }
-    }
-
-    // ── Feather item hits player — deal 5 display HP (1 vanilla HP) ──────────
-    // Since Item entities don't fire EntityDamageByEntityEvent, we handle
-    // proximity in EagleBoss.trackFeather() — this event is a safety fallback
-    @EventHandler(priority = EventPriority.HIGH)
+    // ── Feather item hits player ──────────────────────────────────────────────
+    // Handled inside EagleBoss.trackFeather() via proximity check each tick.
+    // This handler just cleans up feather items that hit blocks.
+    @EventHandler
     public void onFeatherHitBlock(ProjectileHitEvent event) {
         if (!(event.getEntity() instanceof Arrow arrow)) return;
         if (!arrow.hasMetadata(EagleBoss.META_EAGLE_FEATHER)) return;
         if (event.getHitBlock() != null) arrow.remove();
     }
 
-    // ── Trigger death ─────────────────────────────────────────────────────────
-    private void triggerDeath(Phantom phantom, EagleBoss boss) {
-        activeBosses.remove(phantom.getUniqueId());
-        boss.die();
-
-        // Drop 2 Eagle's Eyes
-        phantom.getWorld().dropItemNaturally(
-            phantom.getLocation(), EaglesEyeItem.create());
-        phantom.getWorld().dropItemNaturally(
-            phantom.getLocation(), EaglesEyeItem.create());
-        phantom.remove();
-
-        Bukkit.broadcastMessage(
-            "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
-            "\u00a7e\u00a7lEagle's Eyes have dropped!");
-    }
-
-    // ── Fallback death (e.g. killed by other means) ───────────────────────────
+    // ── Boss death — vanilla handles HP, we just intercept EntityDeathEvent ───
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBossDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Phantom phantom)) return;
@@ -106,10 +60,13 @@ public class EagleBossListener implements Listener {
 
         EagleBoss boss = activeBosses.remove(phantom.getUniqueId());
         if (boss == null) return;
+
         boss.die();
         event.getDrops().clear();
+        event.setDroppedExp(500);
         event.getDrops().add(EaglesEyeItem.create());
         event.getDrops().add(EaglesEyeItem.create());
+
         Bukkit.broadcastMessage(
             "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
             "\u00a7e\u00a7lEagle's Eyes have dropped!");

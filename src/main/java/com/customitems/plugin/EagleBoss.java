@@ -347,8 +347,8 @@ public class EagleBoss {
 
     private void fireFeatherSwarm(final Player target) {
         // Base 50–150, phase 2 = ×1.5, phase 3 = ×2
-        int base = 50 + random.nextInt(101);
-        int featherCount = (int)(base * (phase == 3 ? 2.0 : phase == 2 ? 1.5 : 1.0));
+        int baseCount = 50 + random.nextInt(101);
+        int featherCount = (int)(baseCount * (phase == 3 ? 2.0 : phase == 2 ? 1.5 : 1.0));
 
         broadcastNearby(phantom.getLocation(), 150,
             "\u00a75\u00a7l\u2604 WIND BURST! \u2604 \u00a77(" + featherCount + " feathers)");

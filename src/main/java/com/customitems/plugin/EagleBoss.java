@@ -277,7 +277,7 @@ public class EagleBoss {
 
                 if (toTarget.length() < 2.5) {
                     // 15 display HP × seconds × DMG_MULT, ÷5 for vanilla
-                    double displayDmg = 15.0 * DMG_MULT * (ticksFall / 20.0);
+                    double displayDmg = 15.0;
                     target.damage(displayDmg / 5.0, phantom);
                     target.sendMessage("\u00a74\u00a7lEagle's talons struck you for \u00a7c"
                         + String.format("%.0f", displayDmg) + " HP\u00a74\u00a7l!");
@@ -511,10 +511,10 @@ public class EagleBoss {
         if (phantom.getLocation().distance(target.getLocation()) < 5.0) {
             // 30 display HP × 2.5 = 75 display HP (phase 1/2)
             // 45 display HP × 2.5 = 112.5 display HP (phase 3)
-            double displayDmg = (phase == 3 ? 45.0 : 30.0) * DMG_MULT;
+            double displayDmg = phase == 3 ? 40.0 : 30.0;
             target.damage(displayDmg / 5.0, phantom);
             target.sendMessage("\u00a7c\u00a7lSliced for \u00a74"
-                + String.format("%.0f", displayDmg) + " HP\u00a7c\u00a7l!");
+                + (int) displayDmg + " HP\u00a7c\u00a7l!");;
         }
         phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
             phantom.getLocation().clone().add(0, 1, 0), 20, 1.2, 0.5, 1.2, 0.1);

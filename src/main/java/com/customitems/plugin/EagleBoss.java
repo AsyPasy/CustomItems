@@ -39,7 +39,7 @@ public class EagleBoss {
         ticksUntilSlicer    = (30 + random.nextInt(11)) * 20;
         startTasks();
         broadcastNearby(spawnLoc, 100,
-            "\u00a74\u00a7l\u26a0 Eagle's Baby Boss has descended upon you! \u26a0");
+            "\u00a74\u00a7l\u26a0 Eagle's Baby Boss has descended! \u26a0");
         spawnLoc.getWorld().playSound(spawnLoc,
             Sound.ENTITY_PHANTOM_AMBIENT, 2f, 2f);
     }
@@ -53,48 +53,49 @@ public class EagleBoss {
         p.setAI(false);
         p.setGravity(false);
         p.setSize(3);
-
         AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
         if (maxHp != null) maxHp.setBaseValue(MAX_HP_VANILLA);
         p.setHealth(MAX_HP_VANILLA);
-
         alive = true;
         return p;
     }
 
-    // ── Main task ─────────────────────────────────────────────────────────────
+    // ── Tasks ─────────────────────────────────────────────────────────────────
     private void startTasks() {
-        tasks.add(new BukkitRunnable() {
-            @Override public void run() {
+        BukkitTask t = new BukkitRunnable() {
+            @Override
+            public void run() {
                 if (!alive || phantom == null || phantom.isDead()) {
                     cancel();
                     return;
                 }
                 updateName();
-                if (state == State.IDLE) mainTick();
+                if (state == State.IDLE) {
+                    mainTick();
+                }
             }
-        }.runTaskTimer(plugin, 1L, 1L));
+        }.runTaskTimer(plugin, 1L, 1L);
+        tasks.add(t);
     }
 
+    // ── Main tick ─────────────────────────────────────────────────────────────
     private void mainTick() {
         Player target = getNearestPlayer(100);
         if (target == null) return;
 
         if (ticksUntilWindBurst > 0) ticksUntilWindBurst--;
-        if (ticksUntilSlicer    > 0) ticksUntilSlicer--;
+        if (ticksUntilSlicer > 0)    ticksUntilSlicer--;
 
         if (ticksUntilSlicer <= 0) {
             ticksUntilSlicer = (30 + random.nextInt(11)) * 20;
             performSlicer(target);
             return;
         }
-
         if (ticksUntilWindBurst <= 0) {
             ticksUntilWindBurst = (10 + random.nextInt(21)) * 20;
             performWindBurst(target);
             return;
         }
-
         idleTicks++;
         if (idleTicks >= 40) {
             idleTicks = 0;
@@ -105,20 +106,22 @@ public class EagleBoss {
     // ── Talon Charge ──────────────────────────────────────────────────────────
     private void performTalonCharge(final Player target) {
         state = State.CHARGING;
-
-        Location above = target.getLocation().clone().add(0, 50, 0);
-        phantom.teleport(above);
+        phantom.teleport(target.getLocation().clone().add(0, 50, 0));
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_FLAP, 1.5f, 2f);
 
         new BukkitRunnable() {
-            double velocityY = 0.0;
-            int    ticksFall = 0;
-            boolean done     = false;
+            double  velocityY = 0.0;
+            int     ticksFall = 0;
+            boolean done      = false;
 
-            @Override public void run() {
+            @Override
+            public void run() {
                 if (!alive || phantom.isDead() || done) {
-                    if (!done) { done = true; state = State.IDLE; }
+                    if (!done) {
+                        done = true;
+                        state = State.IDLE;
+                    }
                     cancel();
                     return;
                 }
@@ -126,11 +129,8 @@ public class EagleBoss {
                 Location pLoc = phantom.getLocation();
                 Location tLoc = target.getLocation();
 
-                double dx = Math.max(-0.5, Math.min(0.5,
-                        (tLoc.getX() - pLoc.getX()) * 0.1));
-                double dz = Math.max(-0.5, Math.min(0.5,
-                        (tLoc.getZ() - pLoc.getZ()) * 0.1));
-
+                double dx = Math.max(-0.5, Math.min(0.5, (tLoc.getX() - pLoc.getX()) * 0.1));
+                double dz = Math.max(-0.5, Math.min(0.5, (tLoc.getZ() - pLoc.getZ()) * 0.1));
                 velocityY -= 9.8 / 20.0;
                 ticksFall++;
 
@@ -138,7 +138,6 @@ public class EagleBoss {
                 Vector toPlayer = tLoc.toVector().subtract(newLoc.toVector());
                 if (toPlayer.length() > 0) newLoc.setDirection(toPlayer);
                 phantom.teleport(newLoc);
-
                 phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
                     pLoc, 3, 0.3, 0.3, 0.3, 0);
 
@@ -170,33 +169,31 @@ public class EagleBoss {
     // ── Wind Burst ────────────────────────────────────────────────────────────
     private void performWindBurst(final Player target) {
         state = State.WIND_BURST;
-
-        Location airPos = target.getLocation().clone().add(0, 15, 0);
-        phantom.teleport(airPos);
+        phantom.teleport(target.getLocation().clone().add(0, 15, 0));
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_FLAP, 1.5f, 2f);
-        broadcastNearby(phantom.getLocation(), 100,
-            "\u00a75\u00a7lWind Burst!");
+        broadcastNearby(phantom.getLocation(), 100, "\u00a75\u00a7lWind Burst!");
 
-        int featherCount = 10 + random.nextInt(21);
+        final int featherCount = 10 + random.nextInt(21);
 
         new BukkitRunnable() {
             int fired = 0;
-            @Override public void run() {
+
+            @Override
+            public void run() {
                 if (!alive || phantom.isDead()) {
-                    cancel();
                     state = State.IDLE;
+                    cancel();
                     return;
                 }
                 if (fired >= featherCount) {
-                    cancel();
                     state = State.IDLE;
+                    cancel();
                     return;
                 }
 
                 Location from = phantom.getEyeLocation();
-                Location to   = target.getEyeLocation();
-                Vector dir = to.toVector()
+                Vector dir = target.getEyeLocation().toVector()
                         .subtract(from.toVector())
                         .normalize()
                         .multiply(1.5);
@@ -216,7 +213,6 @@ public class EagleBoss {
 
                 phantom.getWorld().spawnParticle(Particle.CLOUD,
                     from, 2, 0.1, 0.1, 0.1, 0.05);
-
                 fired++;
             }
         }.runTaskTimer(plugin, 0L, 1L);
@@ -225,27 +221,28 @@ public class EagleBoss {
     // ── Slicer ────────────────────────────────────────────────────────────────
     private void performSlicer(final Player target) {
         state = State.SLICER;
-
-        broadcastNearby(phantom.getLocation(), 100,
-            "\u00a7c\u00a7lSlicer!");
+        broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7lSlicer!");
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_BITE, 1.5f, 0.8f);
 
         slash(target, true);
 
         new BukkitRunnable() {
-            @Override public void run() {
+            @Override
+            public void run() {
                 if (!alive || phantom.isDead()) { state = State.IDLE; return; }
                 slash(target, false);
             }
         }.runTaskLater(plugin, 10L);
 
         new BukkitRunnable() {
-            @Override public void run() {
+            @Override
+            public void run() {
                 if (!alive || phantom.isDead()) { state = State.IDLE; return; }
                 slash(target, true);
                 new BukkitRunnable() {
-                    @Override public void run() {
+                    @Override
+                    public void run() {
                         if (!alive || phantom.isDead()) { state = State.IDLE; return; }
                         ascend();
                     }
@@ -256,23 +253,18 @@ public class EagleBoss {
 
     private void slash(Player target, boolean front) {
         if (!alive || phantom.isDead()) return;
-
         Location tLoc = target.getLocation();
         Vector dir = tLoc.getDirection().clone().normalize();
         if (dir.length() < 0.01) dir = new Vector(1, 0, 0);
 
-        Location slashLoc = front
-            ? tLoc.clone().add(dir.clone().multiply(3))
-            : tLoc.clone().add(dir.clone().multiply(-3));
+        Location slashLoc = tLoc.clone().add(dir.multiply(front ? 3 : -3));
         slashLoc.setY(tLoc.getY());
-
         phantom.teleport(slashLoc);
 
         if (phantom.getLocation().distance(tLoc) < 4.0) {
             target.damage(6.0, phantom);
             target.sendMessage("\u00a7c\u00a7lSliced for \u00a7430 HP\u00a7c\u00a7l!");
         }
-
         phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
             phantom.getLocation().clone().add(0, 1, 0), 15, 1, 0.5, 1, 0.1);
         phantom.getWorld().playSound(phantom.getLocation(),
@@ -283,15 +275,24 @@ public class EagleBoss {
     private void ascend() {
         state = State.ASCENDING;
         Player target = getNearestPlayer(100);
-        double targetY = (target != null
+        final double targetY = (target != null
             ? target.getLocation().getY()
             : phantom.getLocation().getY()) + 20;
 
         new BukkitRunnable() {
-            @Override public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) {
+                    state = State.IDLE;
+                    cancel();
+                    return;
+                }
                 Location loc = phantom.getLocation();
-                if (loc.getY() >= targetY) { state = State.IDLE; cancel(); return; }
+                if (loc.getY() >= targetY) {
+                    state = State.IDLE;
+                    cancel();
+                    return;
+                }
                 phantom.teleport(loc.clone().add(0, 1.5, 0));
             }
         }.runTaskTimer(plugin, 1L, 1L);
@@ -326,7 +327,7 @@ public class EagleBoss {
 
     private Player getNearestPlayer(double radius) {
         Player nearest = null;
-        double minDist = Double.MAX_VALUE;
+        double minDist  = Double.MAX_VALUE;
         for (Entity e : phantom.getNearbyEntities(radius, radius, radius)) {
             if (!(e instanceof Player p) || p.isDead()) continue;
             double d = e.getLocation().distanceSquared(phantom.getLocation());

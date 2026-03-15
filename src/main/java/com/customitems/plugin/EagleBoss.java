@@ -1,5 +1,7 @@
 package com.customitems.plugin;
 
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -83,28 +85,68 @@ public class EagleBoss {
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_PHANTOM_AMBIENT, 2f, 2f);
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_WITHER_SPAWN, 1f, 1.8f);
     }
+    // Used on server restart to reattach behavior to a surviving phantom
+public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
+    this.plugin = plugin;
+
+    bossBar = Bukkit.createBossBar(
+        "\u00a76\u00a7lEagle's Baby",
+        BarColor.YELLOW,
+        BarStyle.SEGMENTED_10
+    );
+
+    this.phantom = existing;
+
+    // Re-apply non-persistent settings lost on restart
+    existing.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
+    existing.setAI(false);
+    existing.setGravity(false);
+    existing.setRemoveWhenFarAway(false);
+    existing.setCustomName("\u00a76\u00a7lEagle's Baby");
+    existing.setCustomNameVisible(true);
+
+    if (!existing.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
+        existing.addPotionEffect(new PotionEffect(
+            PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+    }
+
+    // Determine phase from current HP
+    double pct = existing.getHealth() / MAX_HP;
+    phase = pct > 0.5 ? 1 : pct > 0.05 ? 2 : 3;
+
+    alive = true;
+    resetAttackCooldowns();
+    startTasks();
+
+    Bukkit.broadcastMessage(
+        "\u00a74\u00a7l[!] \u00a7e\u00a7lEagle's Baby \u00a74\u00a7lhas been reloaded from world data!");
+}
 
     // ── Spawn ─────────────────────────────────────────────────────────────────
-    private Phantom spawnPhantom(Location loc) {
-        Phantom p = (Phantom) loc.getWorld().spawnEntity(loc, EntityType.PHANTOM);
-        p.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
-        p.setCustomName("\u00a76\u00a7lEagle's Baby");
-        p.setCustomNameVisible(true);
-        p.setAI(false);
-        p.setGravity(false);
-        p.setRemoveWhenFarAway(false);
-        p.setSize(4);
+  private Phantom spawnPhantom(Location loc) {
+    Phantom p = (Phantom) loc.getWorld().spawnEntity(loc, EntityType.PHANTOM);
+    p.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
+    // PDC persists across restarts — metadata does not
+    p.getPersistentDataContainer().set(
+        new NamespacedKey(plugin, "eagle_boss"),
+        PersistentDataType.BYTE, (byte) 1);
+    p.setCustomName("\u00a76\u00a7lEagle's Baby");
+    p.setCustomNameVisible(true);
+    p.setAI(false);
+    p.setGravity(false);
+    p.setRemoveWhenFarAway(false);
+    p.setSize(4);
 
-        AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
-        if (maxHp != null) maxHp.setBaseValue(MAX_HP);
-        p.setHealth(MAX_HP);
+    AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+    if (maxHp != null) maxHp.setBaseValue(MAX_HP);
+    p.setHealth(MAX_HP);
 
-        p.addPotionEffect(new PotionEffect(
-            PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+    p.addPotionEffect(new PotionEffect(
+        PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
 
-        alive = true;
-        return p;
-    }
+    alive = true;
+    return p;
+}
 
     // ── Attack cooldowns (NOT swarm — swarm is independent) ───────────────────
     private void resetAttackCooldowns() {

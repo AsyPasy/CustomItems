@@ -7,6 +7,7 @@ import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.*;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
@@ -21,11 +22,15 @@ public class EagleBoss {
     public static final String META_EAGLE_BOSS    = "eagle_boss";
     public static final String META_EAGLE_FEATHER = "eagle_feather";
 
-    // Virtual HP — tracked by us, not by Bukkit
-    // 1250 vanilla HP × 5 = 6250 display HP
-    private static final double VIRTUAL_HP_MAX    = 6250.0;
-    // Vanilla HP locked at Spigot's hard cap — phantom never dies from vanilla damage
-    private static final double VANILLA_HP_CAP    = 1024.0;
+    // 1250 vanilla HP = 6250 display HP — tracked virtually
+    private static final double VIRTUAL_HP_MAX = 6250.0;
+    // Spigot hard cap — phantom's real HP is locked here always
+    private static final double VANILLA_HP_CAP  = 1024.0;
+
+    // Movement speeds (blocks per tick, 20 ticks = 1 second)
+    private static final double ASCEND_SPEED  = 1.0;  // 20 blocks/s upward
+    private static final double DIVE_SPEED    = 0.5;  // 10 blocks/s dive
+    private static final double PATROL_SPEED  = 0.3;  // 6 blocks/s general movement
 
     private final CustomItemsPlugin plugin;
     private final Phantom phantom;
@@ -35,7 +40,7 @@ public class EagleBoss {
     private final List<BukkitTask> tasks = new ArrayList<>();
     private final BossBar bossBar;
 
-    private enum State { IDLE, CHARGING, WIND_BURST, SLICER, ASCENDING }
+    private enum State { IDLE, ASCENDING_FOR_CHARGE, DIVING, WIND_BURST, SLICER, ASCENDING }
     private State state = State.IDLE;
 
     private int ticksUntilWindBurst;
@@ -45,7 +50,6 @@ public class EagleBoss {
     public EagleBoss(CustomItemsPlugin plugin, Location spawnLoc) {
         this.plugin = plugin;
 
-        // Create boss bar
         bossBar = Bukkit.createBossBar(
             "\u00a76\u00a7lEagle's Baby Boss",
             BarColor.YELLOW,
@@ -73,12 +77,10 @@ public class EagleBoss {
         p.setGravity(false);
         p.setRemoveWhenFarAway(false);
 
-        // Lock vanilla HP at cap — we manage real HP ourselves
         AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
         if (maxHp != null) maxHp.setBaseValue(VANILLA_HP_CAP);
         p.setHealth(VANILLA_HP_CAP);
 
-        // Permanent fire resistance so it never catches fire from environment
         p.addPotionEffect(new PotionEffect(
             PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
 
@@ -88,7 +90,6 @@ public class EagleBoss {
 
     // ── Tasks ─────────────────────────────────────────────────────────────────
     private void startTasks() {
-        // Main AI + boss bar + fire suppression tick
         BukkitTask main = new BukkitRunnable() {
             @Override
             public void run() {
@@ -96,69 +97,48 @@ public class EagleBoss {
                     cancel();
                     return;
                 }
-
-                // Suppress daylight fire every tick
+                // Suppress fire every tick
                 phantom.setFireTicks(0);
                 phantom.setVisualFire(false);
-
-                // Restore vanilla HP to cap so Bukkit never kills it
+                // Keep vanilla HP at cap so Bukkit never kills it
                 if (phantom.getHealth() < VANILLA_HP_CAP) {
                     phantom.setHealth(VANILLA_HP_CAP);
                 }
-
                 updateBossBar();
+                updateBossBarPlayers();
 
                 if (state == State.IDLE) {
                     mainTick();
                 }
-
-                // Update boss bar visibility for nearby players
-                updateBossBarPlayers();
             }
         }.runTaskTimer(plugin, 1L, 1L);
         tasks.add(main);
     }
 
-    // ── Boss bar helpers ──────────────────────────────────────────────────────
+    // ── Boss bar ──────────────────────────────────────────────────────────────
     private void updateBossBar() {
         double progress = Math.max(0.0, Math.min(1.0, virtualHP / VIRTUAL_HP_MAX));
         bossBar.setProgress(progress);
-        int displayHP = (int) Math.ceil(virtualHP);
         bossBar.setTitle(String.format(
             "\u00a76\u00a7lEagle's Baby Boss \u00a7e%d\u00a77/\u00a7e%d HP",
-            displayHP, (int) VIRTUAL_HP_MAX));
-
-        // Color changes with HP
-        if (progress > 0.5)      bossBar.setColor(BarColor.YELLOW);
+            (int) Math.ceil(virtualHP), (int) VIRTUAL_HP_MAX));
+        if (progress > 0.5)       bossBar.setColor(BarColor.YELLOW);
         else if (progress > 0.25) bossBar.setColor(BarColor.RED);
         else                      bossBar.setColor(BarColor.PURPLE);
     }
 
     private void updateBossBarPlayers() {
         List<Player> nearby = getPlayersInRange(100);
-        Set<Player> currentViewers = new HashSet<>(bossBar.getPlayers());
-
-        // Add new nearby players
-        for (Player p : nearby) {
-            if (!currentViewers.contains(p)) bossBar.addPlayer(p);
-        }
-        // Remove players who moved away
-        for (Player p : currentViewers) {
-            if (!nearby.contains(p)) bossBar.removePlayer(p);
-        }
+        Set<Player> current = new HashSet<>(bossBar.getPlayers());
+        for (Player p : nearby)  if (!current.contains(p)) bossBar.addPlayer(p);
+        for (Player p : current) if (!nearby.contains(p))  bossBar.removePlayer(p);
     }
 
-    // ── Apply virtual damage (called from EagleBossListener) ─────────────────
+    // ── Virtual damage ────────────────────────────────────────────────────────
     public boolean applyVirtualDamage(double vanillaDamage) {
         if (!alive) return false;
-        // Convert vanilla damage to display HP (×5)
-        double displayDamage = vanillaDamage * 5.0;
-        virtualHP -= displayDamage;
-
-        if (virtualHP <= 0) {
-            virtualHP = 0;
-            return true; // signal death
-        }
+        virtualHP -= vanillaDamage * 5.0;
+        if (virtualHP <= 0) { virtualHP = 0; return true; }
         return false;
     }
 
@@ -166,7 +146,7 @@ public class EagleBoss {
 
     // ── Main tick ─────────────────────────────────────────────────────────────
     private void mainTick() {
-        Player target = getNearestPlayer(200);
+        Player target = getNearestPlayer(300);
         if (target == null) return;
 
         if (ticksUntilWindBurst > 0) ticksUntilWindBurst--;
@@ -186,123 +166,187 @@ public class EagleBoss {
         idleTicks++;
         if (idleTicks >= 40) {
             idleTicks = 0;
-            performTalonCharge(target);
+            startTalonCharge(target);
         }
     }
 
-    // ── Talon Charge ──────────────────────────────────────────────────────────
-    private void performTalonCharge(final Player target) {
-        state = State.CHARGING;
-        phantom.teleport(target.getLocation().clone().add(0, 50, 0));
+    // ── Talon Charge — Phase 1: Fly up 50 blocks above player ─────────────────
+    private void startTalonCharge(final Player target) {
+        state = State.ASCENDING_FOR_CHARGE;
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_FLAP, 1.5f, 2f);
 
         new BukkitRunnable() {
-            double  velocityY = 0.0;
-            int     ticksFall = 0;
-            boolean done      = false;
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+
+                Location cur  = phantom.getLocation();
+                Location dest = target.getLocation().clone().add(0, 50, 0);
+
+                // Move horizontally toward above-player XZ, and upward
+                double dx = clamp((dest.getX() - cur.getX()) * 0.15, ASCEND_SPEED);
+                double dy = clamp((dest.getY() - cur.getY()) * 0.15, ASCEND_SPEED * 2);
+                double dz = clamp((dest.getZ() - cur.getZ()) * 0.15, ASCEND_SPEED);
+
+                movePhantom(cur, dx, dy, dz, target.getLocation());
+
+                // Reached target height — begin dive
+                if (cur.distance(dest) < 3.0) {
+                    cancel();
+                    startTalonDive(target);
+                }
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    // ── Talon Charge — Phase 2: Dive at 10 blocks/s ───────────────────────────
+    // Damage = 15 display HP × seconds in dive (3 vanilla HP/s)
+    private void startTalonDive(final Player target) {
+        state = State.DIVING;
+
+        new BukkitRunnable() {
+            int ticksFall = 0;
 
             @Override
             public void run() {
-                if (!alive || phantom.isDead() || done) {
-                    if (!done) { done = true; state = State.IDLE; }
-                    cancel();
-                    return;
-                }
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
 
-                Location pLoc = phantom.getLocation();
+                ticksFall++;
+                Location cur  = phantom.getLocation();
                 Location tLoc = target.getLocation();
 
-                double dx = Math.max(-0.5, Math.min(0.5,
-                        (tLoc.getX() - pLoc.getX()) * 0.1));
-                double dz = Math.max(-0.5, Math.min(0.5,
-                        (tLoc.getZ() - pLoc.getZ()) * 0.1));
-                velocityY -= 9.8 / 20.0;
-                ticksFall++;
+                // Move directly toward player at DIVE_SPEED blocks/tick
+                Vector toTarget = tLoc.toVector().subtract(cur.toVector());
+                double dist = toTarget.length();
 
-                Location newLoc = pLoc.clone().add(dx, velocityY, dz);
-                Vector toPlayer = tLoc.toVector().subtract(newLoc.toVector());
-                if (toPlayer.length() > 0) newLoc.setDirection(toPlayer);
-                phantom.teleport(newLoc);
-
-                phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
-                    pLoc, 3, 0.3, 0.3, 0.3, 0);
-
-                if (phantom.getLocation().distance(tLoc) < 2.5) {
-                    done = true;
-                    double secs       = ticksFall / 20.0;
-                    double displayDmg = 15.0 * secs;
-                    target.damage(displayDmg / 5.0, phantom);
+                if (dist < 2.5) {
+                    // Direct hit
+                    double seconds    = ticksFall / 20.0;
+                    double displayDmg = 15.0 * seconds;         // 15 display HP per second
+                    double vanillaDmg = displayDmg / 5.0;       // convert to vanilla
+                    target.damage(vanillaDmg, phantom);
                     target.sendMessage("\u00a74\u00a7lEagle's talons struck you for \u00a7c"
                         + String.format("%.0f", displayDmg) + " HP\u00a74\u00a7l!");
                     phantom.getWorld().playSound(phantom.getLocation(),
                         Sound.ENTITY_PHANTOM_BITE, 1.5f, 1f);
                     phantom.getWorld().spawnParticle(Particle.CRIT,
                         tLoc.clone().add(0, 1, 0), 20, 0.5, 0.5, 0.5, 0.1);
-                    ascend();
                     cancel();
+                    smoothAscend();
                     return;
                 }
 
-                if (newLoc.getY() < tLoc.getY() - 5) {
-                    done = true;
-                    ascend();
+                // Move DIVE_SPEED blocks toward player each tick
+                Vector step = toTarget.normalize().multiply(DIVE_SPEED);
+                Location next = cur.clone().add(step);
+                next.setDirection(toTarget);
+                phantom.teleport(next);
+
+                phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
+                    cur, 2, 0.2, 0.2, 0.2, 0);
+
+                // Missed (timeout 15s)
+                if (ticksFall > 300) {
                     cancel();
+                    smoothAscend();
                 }
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // ── Wind Burst ────────────────────────────────────────────────────────────
+    // ── Wind Burst — swarm all feathers at once ───────────────────────────────
+    // Feathers = dropped FEATHER items with velocity (visually spin through air)
+    // Each feather deals 1 vanilla HP (5 display HP)
     private void performWindBurst(final Player target) {
         state = State.WIND_BURST;
-        phantom.teleport(target.getLocation().clone().add(0, 15, 0));
-        phantom.getWorld().playSound(phantom.getLocation(),
-            Sound.ENTITY_PHANTOM_FLAP, 1.5f, 2f);
-        broadcastNearby(phantom.getLocation(), 100, "\u00a75\u00a7lWind Burst!");
 
-        final int featherCount = 10 + random.nextInt(21);
-
+        // Move to 15 blocks above player smoothly first
         new BukkitRunnable() {
-            int fired = 0;
-
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) {
-                    state = State.IDLE;
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+
+                Location cur  = phantom.getLocation();
+                Location dest = target.getLocation().clone().add(0, 15, 0);
+
+                double dx = clamp((dest.getX() - cur.getX()) * 0.2, PATROL_SPEED * 2);
+                double dy = clamp((dest.getY() - cur.getY()) * 0.2, ASCEND_SPEED);
+                double dz = clamp((dest.getZ() - cur.getZ()) * 0.2, PATROL_SPEED * 2);
+
+                movePhantom(cur, dx, dy, dz, target.getLocation());
+
+                if (cur.distance(dest) < 4.0) {
                     cancel();
-                    return;
+                    fireFeatherSwarm(target);
                 }
-                if (fired >= featherCount) {
-                    state = State.IDLE;
-                    cancel();
-                    return;
-                }
-
-                Location from = phantom.getEyeLocation();
-                Vector dir = target.getEyeLocation().toVector()
-                        .subtract(from.toVector())
-                        .normalize()
-                        .multiply(1.5);
-
-                Arrow arrow = phantom.getWorld().spawn(from, Arrow.class);
-                arrow.setVelocity(dir);
-                arrow.setDamage(0);
-                arrow.setShooter(phantom);
-                arrow.setGlowing(true);
-                arrow.setFireTicks(0);
-                arrow.setMetadata(META_EAGLE_FEATHER,
-                    new FixedMetadataValue(plugin, true));
-
-                plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                    if (!arrow.isDead()) arrow.remove();
-                }, 60L);
-
-                phantom.getWorld().spawnParticle(Particle.CLOUD,
-                    from, 2, 0.1, 0.1, 0.1, 0.05);
-                fired++;
             }
         }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    private void fireFeatherSwarm(final Player target) {
+        broadcastNearby(phantom.getLocation(), 100, "\u00a75\u00a7lWind Burst!");
+        phantom.getWorld().playSound(phantom.getLocation(),
+            Sound.ENTITY_PHANTOM_FLAP, 1.5f, 2f);
+
+        int featherCount = 10 + random.nextInt(21);
+        Location from = phantom.getLocation().clone().add(0, 1, 0);
+
+        for (int i = 0; i < featherCount; i++) {
+            // Aim at player's current position with random spread
+            Vector base = target.getEyeLocation().toVector()
+                    .subtract(from.toVector()).normalize();
+            Vector spread = new Vector(
+                (random.nextDouble() - 0.5) * 0.4,
+                (random.nextDouble() - 0.5) * 0.4,
+                (random.nextDouble() - 0.5) * 0.4
+            );
+            Vector vel = base.add(spread).normalize().multiply(0.9);
+
+            // Drop a FEATHER item — visually appears as a spinning feather
+            Item feather = phantom.getWorld().dropItem(from, new ItemStack(Material.FEATHER));
+            feather.setVelocity(vel);
+            feather.setPickupDelay(Integer.MAX_VALUE);
+            feather.setCanMobPickup(false);
+            feather.setGlowing(true);
+            feather.setMetadata(META_EAGLE_FEATHER,
+                new FixedMetadataValue(plugin, true));
+
+            trackFeather(feather);
+        }
+
+        // Return to idle after burst
+        new BukkitRunnable() {
+            @Override
+            public void run() { state = State.IDLE; }
+        }.runTaskLater(plugin, 60L);
+    }
+
+    // Track a feather item — deal damage on proximity, auto-remove after 3s
+    private void trackFeather(final Item feather) {
+        new BukkitRunnable() {
+            int ticks = 0;
+            @Override
+            public void run() {
+                ticks++;
+                if (feather.isDead() || !feather.isValid() || ticks > 60) {
+                    feather.remove();
+                    cancel();
+                    return;
+                }
+                // Hit check — within 1 block of any player
+                for (Entity e : feather.getNearbyEntities(1.0, 1.0, 1.0)) {
+                    if (e instanceof Player p && !p.isDead()) {
+                        p.damage(1.0); // 1 vanilla HP = 5 display HP
+                        feather.getWorld().spawnParticle(Particle.CRIT,
+                            feather.getLocation(), 3, 0.1, 0.1, 0.1, 0.05);
+                        feather.remove();
+                        cancel();
+                        return;
+                    }
+                }
+            }
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     // ── Slicer ────────────────────────────────────────────────────────────────
@@ -312,44 +356,72 @@ public class EagleBoss {
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_BITE, 1.5f, 0.8f);
 
-        slash(target, true);
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; return; }
-                slash(target, false);
-            }
-        }.runTaskLater(plugin, 10L);
-
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; return; }
-                slash(target, true);
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        if (!alive || phantom.isDead()) { state = State.IDLE; return; }
-                        ascend();
-                    }
-                }.runTaskLater(plugin, 5L);
-            }
-        }.runTaskLater(plugin, 20L);
+        // Fly to in front of player first, then slash sequence
+        flyToAndSlash(target, true, () ->
+            new BukkitRunnable() {
+                @Override public void run() {
+                    if (!alive || phantom.isDead()) { state = State.IDLE; return; }
+                    // Back slash
+                    flyToAndSlash(target, false, () ->
+                        new BukkitRunnable() {
+                            @Override public void run() {
+                                if (!alive || phantom.isDead()) { state = State.IDLE; return; }
+                                // Front slash again
+                                flyToAndSlash(target, true, () ->
+                                    new BukkitRunnable() {
+                                        @Override public void run() {
+                                            if (!alive || phantom.isDead()) { state = State.IDLE; return; }
+                                            smoothAscend();
+                                        }
+                                    }.runTaskLater(plugin, 5L)
+                                );
+                            }
+                        }.runTaskLater(plugin, 5L)
+                    );
+                }
+            }.runTaskLater(plugin, 5L)
+        );
     }
 
-    private void slash(Player target, boolean front) {
+    // Fly smoothly to front/back of player, then execute callback
+    private void flyToAndSlash(final Player target, final boolean front, final Runnable after) {
+        new BukkitRunnable() {
+            int timeout = 0;
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+                timeout++;
+
+                Location tLoc = target.getLocation();
+                Vector dir = tLoc.getDirection().clone().normalize();
+                if (dir.length() < 0.01) dir = new Vector(1, 0, 0);
+
+                Location dest = tLoc.clone().add(dir.multiply(front ? 3 : -3));
+                dest.setY(tLoc.getY() + 1);
+
+                Location cur = phantom.getLocation();
+                double dist  = cur.distance(dest);
+
+                if (dist < 1.5 || timeout > 60) {
+                    cancel();
+                    doSlash(target);
+                    plugin.getServer().getScheduler().runTaskLater(plugin,
+                        after, 3L);
+                    return;
+                }
+
+                double dx = clamp((dest.getX() - cur.getX()) * 0.3, 0.8);
+                double dy = clamp((dest.getY() - cur.getY()) * 0.3, 0.8);
+                double dz = clamp((dest.getZ() - cur.getZ()) * 0.3, 0.8);
+                movePhantom(cur, dx, dy, dz, tLoc);
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    private void doSlash(Player target) {
         if (!alive || phantom.isDead()) return;
-        Location tLoc = target.getLocation();
-        Vector dir = tLoc.getDirection().clone().normalize();
-        if (dir.length() < 0.01) dir = new Vector(1, 0, 0);
-
-        Location slashLoc = tLoc.clone().add(dir.multiply(front ? 3 : -3));
-        slashLoc.setY(tLoc.getY());
-        phantom.teleport(slashLoc);
-
-        if (phantom.getLocation().distance(tLoc) < 4.0) {
-            target.damage(6.0, phantom);
+        if (phantom.getLocation().distance(target.getLocation()) < 5.0) {
+            target.damage(6.0, phantom); // 30 display HP
             target.sendMessage("\u00a7c\u00a7lSliced for \u00a7430 HP\u00a7c\u00a7l!");
         }
         phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
@@ -358,10 +430,10 @@ public class EagleBoss {
             Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1.5f, 1.2f);
     }
 
-    // ── Ascend ────────────────────────────────────────────────────────────────
-    private void ascend() {
+    // ── Smooth ascend ─────────────────────────────────────────────────────────
+    private void smoothAscend() {
         state = State.ASCENDING;
-        Player target = getNearestPlayer(200);
+        Player target = getNearestPlayer(300);
         final double targetY = (target != null
             ? target.getLocation().getY()
             : phantom.getLocation().getY()) + 20;
@@ -369,20 +441,31 @@ public class EagleBoss {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) {
-                    state = State.IDLE;
-                    cancel();
-                    return;
-                }
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
                 Location loc = phantom.getLocation();
-                if (loc.getY() >= targetY) {
-                    state = State.IDLE;
-                    cancel();
-                    return;
-                }
-                phantom.teleport(loc.clone().add(0, 1.5, 0));
+                if (loc.getY() >= targetY) { state = State.IDLE; cancel(); return; }
+                // Move up at ASCEND_SPEED blocks/tick
+                double dy = Math.min(ASCEND_SPEED, targetY - loc.getY());
+                phantom.teleport(loc.clone().add(0, dy, 0));
             }
         }.runTaskTimer(plugin, 1L, 1L);
+    }
+
+    // ── Movement helper ───────────────────────────────────────────────────────
+    // Small incremental teleport — looks like flying at 20 TPS
+    private void movePhantom(Location from, double dx, double dy, double dz,
+                             Location facingTarget) {
+        Location next = from.clone().add(dx, dy, dz);
+        if (facingTarget != null) {
+            Vector dir = facingTarget.toVector().subtract(next.toVector());
+            if (dir.length() > 0) next.setDirection(dir);
+        }
+        phantom.teleport(next);
+    }
+
+    // Clamp a value to [-max, +max]
+    private double clamp(double val, double max) {
+        return Math.max(-max, Math.min(max, val));
     }
 
     // ── Death ─────────────────────────────────────────────────────────────────
@@ -410,17 +493,9 @@ public class EagleBoss {
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     private Player getNearestPlayer(double radius) {
-        // First try nearby entities (fast)
         Player nearest = null;
         double minDist  = Double.MAX_VALUE;
-        for (Entity e : phantom.getNearbyEntities(radius, radius, radius)) {
-            if (!(e instanceof Player p) || p.isDead()) continue;
-            double d = e.getLocation().distanceSquared(phantom.getLocation());
-            if (d < minDist) { minDist = d; nearest = p; }
-        }
-        if (nearest != null) return nearest;
-
-        // Fallback: scan all online players in same world
+        // Scan all online players in same world — reliable even at high altitude
         for (Player p : Bukkit.getOnlinePlayers()) {
             if (p.isDead()) continue;
             if (!p.getWorld().equals(phantom.getWorld())) continue;
@@ -434,9 +509,7 @@ public class EagleBoss {
         List<Player> result = new ArrayList<>();
         for (Player p : Bukkit.getOnlinePlayers()) {
             if (!p.getWorld().equals(phantom.getWorld())) continue;
-            if (p.getLocation().distance(phantom.getLocation()) <= radius) {
-                result.add(p);
-            }
+            if (p.getLocation().distance(phantom.getLocation()) <= radius) result.add(p);
         }
         return result;
     }

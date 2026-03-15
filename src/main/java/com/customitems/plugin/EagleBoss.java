@@ -307,7 +307,6 @@ public class EagleBoss {
             Item feather = phantom.getWorld().dropItem(from, new ItemStack(Material.FEATHER));
             feather.setVelocity(vel);
             feather.setPickupDelay(Integer.MAX_VALUE);
-            feather.setCanMobPickup(false);
             feather.setGlowing(true);
             feather.setMetadata(META_EAGLE_FEATHER,
                 new FixedMetadataValue(plugin, true));

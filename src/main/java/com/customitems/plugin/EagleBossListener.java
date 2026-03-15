@@ -40,7 +40,11 @@ public class EagleBossListener implements Listener {
     public void spawnBoss(Location loc) {
         EagleBoss boss = new EagleBoss(plugin, loc);
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
-    }
+        public void registerBoss(EagleBoss boss) {
+    activeBosses.put(boss.getPhantom().getUniqueId(), boss);
+        
+}
+
 
     // ── Feather item hits player ──────────────────────────────────────────────
     // Handled inside EagleBoss.trackFeather() via proximity check each tick.

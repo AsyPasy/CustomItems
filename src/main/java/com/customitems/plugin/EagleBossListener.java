@@ -19,14 +19,16 @@ public class EagleBossListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Natural spawn ─────────────────────────────────────────────────────────
+    // ── Natural spawn: 1/2000 above Y 150 ────────────────────────────────────
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
         if (event.getTo().getY() < 150) return;
         if (event.getFrom().getBlockY() == event.getTo().getBlockY()) return;
+
         Player player = event.getPlayer();
         if (spawnCooldowns.contains(player.getUniqueId())) return;
+
         if (random.nextInt(2000) == 0) {
             spawnBoss(player.getLocation().clone().add(0, 10, 0));
             spawnCooldowns.add(player.getUniqueId());
@@ -40,15 +42,15 @@ public class EagleBossListener implements Listener {
     public void spawnBoss(Location loc) {
         EagleBoss boss = new EagleBoss(plugin, loc);
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
-        public void registerBoss(EagleBoss boss) {
-    activeBosses.put(boss.getPhantom().getUniqueId(), boss);
-        
-}
+    }
 
+    // ── Register an existing boss (used on server restart reattach) ───────────
+    public void registerBoss(EagleBoss boss) {
+        activeBosses.put(boss.getPhantom().getUniqueId(), boss);
+    }
 
-    // ── Feather item hits player ──────────────────────────────────────────────
-    // Handled inside EagleBoss.trackFeather() via proximity check each tick.
-    // This handler just cleans up feather items that hit blocks.
+    // ── Feather item hits player (proximity handled in EagleBoss.trackFeather)
+    // This handler only cleans up feathers that hit blocks ────────────────────
     @EventHandler
     public void onFeatherHitBlock(ProjectileHitEvent event) {
         if (!(event.getEntity() instanceof Arrow arrow)) return;
@@ -56,7 +58,7 @@ public class EagleBossListener implements Listener {
         if (event.getHitBlock() != null) arrow.remove();
     }
 
-    // ── Boss death — vanilla handles HP, we just intercept EntityDeathEvent ───
+    // ── Boss death — vanilla HP hits 0, we handle drops ───────────────────────
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBossDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Phantom phantom)) return;
@@ -72,10 +74,11 @@ public class EagleBossListener implements Listener {
         event.getDrops().add(EaglesEyeItem.create());
 
         Bukkit.broadcastMessage(
-            "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
+            "\u00a76\u00a7lEagle's Baby has been slain! " +
             "\u00a7e\u00a7lEagle's Eyes have dropped!");
     }
 
+    // ── Cleanup on plugin disable ─────────────────────────────────────────────
     public void cleanup() {
         activeBosses.values().forEach(EagleBoss::cleanup);
         activeBosses.clear();

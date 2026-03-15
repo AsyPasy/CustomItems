@@ -75,7 +75,7 @@ public class EagleBoss {
                 updateName();
                 if (state == State.IDLE) mainTick();
             }
-        }.runTaskTimer(plugin, 1L, 1L));
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     private void mainTick() {
@@ -178,7 +178,7 @@ public class EagleBoss {
                     cancel();
                 }
             }
-        }.runTaskTimer(plugin, 0L, 1L));
+        }.runTaskTimer(plugin, 0L, 1L);
     }
 
     // ── Wind Burst ────────────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ public class EagleBoss {
 
                 fired++;
             }
-        }.runTaskTimer(plugin, 0L, 1L)); // 1 tick = 0.05 seconds
+        }.runTaskTimer(plugin, 0L, 1L); // 1 tick = 0.05 seconds
     }
 
     // ── Slicer ────────────────────────────────────────────────────────────────
@@ -323,7 +323,7 @@ public class EagleBoss {
                 if (loc.getY() >= targetY) { state = State.IDLE; cancel(); return; }
                 phantom.teleport(loc.clone().add(0, 1.5, 0));
             }
-        }.runTaskTimer(plugin, 1L, 1L));
+        }.runTaskTimer(plugin, 1L, 1L);
     }
 
     // ── Death ─────────────────────────────────────────────────────────────────

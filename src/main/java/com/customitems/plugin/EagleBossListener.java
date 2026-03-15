@@ -19,16 +19,14 @@ public class EagleBossListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Natural spawn ─────────────────────────────────────────────────────────
+    // ── Natural spawn: 1/2000 above Y 150 ────────────────────────────────────
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
         if (event.getTo().getY() < 150) return;
         if (event.getFrom().getBlockY() == event.getTo().getBlockY()) return;
-
         Player player = event.getPlayer();
         if (spawnCooldowns.contains(player.getUniqueId())) return;
-
         if (random.nextInt(2000) == 0) {
             spawnBoss(player.getLocation().clone().add(0, 10, 0));
             spawnCooldowns.add(player.getUniqueId());
@@ -44,7 +42,7 @@ public class EagleBossListener implements Listener {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Cancel ALL damage to the phantom — we handle HP ourselves ─────────────
+    // ── Intercept ALL damage to boss — cancel vanilla, apply to virtual HP ────
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onBossDamaged(EntityDamageEvent event) {
         if (!(event.getEntity() instanceof Phantom p)) return;
@@ -53,59 +51,42 @@ public class EagleBossListener implements Listener {
         EagleBoss boss = activeBosses.get(p.getUniqueId());
         if (boss == null) return;
 
-        // Cancel the vanilla damage so phantom never actually loses HP
+        // Cancel vanilla HP loss — we control virtual HP
         event.setCancelled(true);
 
-        // Only count player-dealt damage toward virtual HP
+        // Only player damage counts
         if (event instanceof EntityDamageByEntityEvent edbe) {
-            Entity damager = edbe.getDamager();
-            double vanillaDamage = edbe.getDamage();
+            Entity damager  = edbe.getDamager();
+            double damage   = edbe.getDamage();
 
-            // Arrow shot by player
-            if (damager instanceof Arrow arrow
-                    && arrow.getShooter() instanceof Player) {
-                if (boss.applyVirtualDamage(vanillaDamage)) {
-                    triggerDeath(p, boss);
-                }
-                return;
-            }
+            boolean isPlayerArrow  = damager instanceof Arrow a
+                                  && a.getShooter() instanceof Player;
+            boolean isPlayerMelee  = damager instanceof Player;
 
-            // Melee by player
-            if (damager instanceof Player) {
-                if (boss.applyVirtualDamage(vanillaDamage)) {
+            if (isPlayerArrow || isPlayerMelee) {
+                if (boss.applyVirtualDamage(damage)) {
                     triggerDeath(p, boss);
                 }
             }
         }
     }
 
-    // ── Feather arrow hits entity ─────────────────────────────────────────────
+    // ── Feather item hits player — deal 5 display HP (1 vanilla HP) ──────────
+    // Since Item entities don't fire EntityDamageByEntityEvent, we handle
+    // proximity in EagleBoss.trackFeather() — this event is a safety fallback
     @EventHandler(priority = EventPriority.HIGH)
-    public void onFeatherHitEntity(EntityDamageByEntityEvent event) {
-        if (!(event.getDamager() instanceof Arrow arrow)) return;
-        if (!arrow.hasMetadata(EagleBoss.META_EAGLE_FEATHER)) return;
-        event.setCancelled(true);
-        if (event.getEntity() instanceof LivingEntity hit) {
-            Entity shooter = arrow.getShooter() instanceof Entity e ? e : null;
-            hit.damage(2.0, shooter); // 10 display HP
-        }
-        arrow.remove();
-    }
-
-    // ── Feather hits block ────────────────────────────────────────────────────
-    @EventHandler
     public void onFeatherHitBlock(ProjectileHitEvent event) {
         if (!(event.getEntity() instanceof Arrow arrow)) return;
         if (!arrow.hasMetadata(EagleBoss.META_EAGLE_FEATHER)) return;
         if (event.getHitBlock() != null) arrow.remove();
     }
 
-    // ── Trigger death manually ────────────────────────────────────────────────
+    // ── Trigger death ─────────────────────────────────────────────────────────
     private void triggerDeath(Phantom phantom, EagleBoss boss) {
         activeBosses.remove(phantom.getUniqueId());
         boss.die();
 
-        // Drop Eagle's Eye and remove phantom
+        // Drop 2 Eagle's Eyes
         phantom.getWorld().dropItemNaturally(
             phantom.getLocation(), EaglesEyeItem.create());
         phantom.getWorld().dropItemNaturally(
@@ -114,24 +95,24 @@ public class EagleBossListener implements Listener {
 
         Bukkit.broadcastMessage(
             "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
-            "\u00a7e\u00a7lAn Eagle's Eye has dropped!");
+            "\u00a7e\u00a7lEagle's Eyes have dropped!");
     }
 
-    // ── Boss death via other means (fallback) ─────────────────────────────────
+    // ── Fallback death (e.g. killed by other means) ───────────────────────────
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBossDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Phantom phantom)) return;
         if (!phantom.hasMetadata(EagleBoss.META_EAGLE_BOSS)) return;
 
         EagleBoss boss = activeBosses.remove(phantom.getUniqueId());
-        if (boss != null) {
-            boss.die();
-            event.getDrops().clear();
-            event.getDrops().add(EaglesEyeItem.create());
-            Bukkit.broadcastMessage(
-                "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
-                "\u00a7e\u00a7lAn Eagle's Eye has dropped!");
-        }
+        if (boss == null) return;
+        boss.die();
+        event.getDrops().clear();
+        event.getDrops().add(EaglesEyeItem.create());
+        event.getDrops().add(EaglesEyeItem.create());
+        Bukkit.broadcastMessage(
+            "\u00a76\u00a7lEagle's Baby Boss has been slain! " +
+            "\u00a7e\u00a7lEagle's Eyes have dropped!");
     }
 
     public void cleanup() {

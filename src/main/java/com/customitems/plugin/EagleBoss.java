@@ -22,23 +22,27 @@ public class EagleBoss {
     public static final String META_EAGLE_BOSS    = "eagle_boss";
     public static final String META_EAGLE_FEATHER = "eagle_feather";
 
-    // 1250 vanilla HP = 625 vanilla hearts — requires Paper server
     private static final double MAX_HP        = 1250.0;
     private static final double CHARGE_HEIGHT = 15.0;
 
-    // Movement speeds (blocks per tick)
     private static final double ASCEND_SPEED  = 1.2;
     private static final double DIVE_BASE     = 0.5;
     private static final double DIVE_ACCEL    = 0.025;
     private static final double DIVE_MAX      = 2.0;
     private static final double PATROL_SPEED  = 0.4;
 
-    // Damage multiplier — all attacks 2.5× stronger
-    private static final double DMG_MULT      = 2.5;
+    // Flat talon damage — always 40 display HP = 8 vanilla HP
+    private static final double TALON_DAMAGE  = 40.0 / 5.0;
 
     // Bleeding — 3 display HP (0.6 vanilla HP) per second for 3 seconds
     private static final double BLEED_VANILLA = 3.0 / 5.0;
-    private static final int    BLEED_TICKS   = 3; // seconds
+    private static final int    BLEED_TICKS   = 3;
+
+    // Eagle's Swarm tornado cooldown (ticks)
+    private static final int SWARM_COOLDOWN   = 45 * 20;
+    private static final int SWARM_FORM_TICKS = 3 * 20 + 10; // 3.5 seconds
+    private static final int SWARM_HOLD_TICKS = 7 * 20;      // 7 seconds
+    private static final double SWARM_RADIUS  = 10.0;
 
     private final CustomItemsPlugin plugin;
     private final Phantom phantom;
@@ -47,21 +51,22 @@ public class EagleBoss {
     private final List<BukkitTask> tasks = new ArrayList<>();
     private final BossBar bossBar;
 
-    // Phase 1 = 100–50%, Phase 2 = 50–5%, Phase 3 = below 5% (slicer only)
+    // Phase 1 = 100–50%, Phase 2 = 50–5%, Phase 3 = below 5%
     private int phase = 1;
 
-    private enum State { IDLE, ASCENDING_FOR_CHARGE, DIVING, WIND_BURST, SLICER, ASCENDING }
+    private enum State { IDLE, ASCENDING_FOR_CHARGE, DIVING, WIND_BURST, SLICER, ASCENDING, SWARM }
     private State state = State.IDLE;
 
     private int ticksUntilWindBurst;
     private int ticksUntilSlicer;
+    private int ticksUntilSwarm;
     private int idleTicks = 0;
 
     public EagleBoss(CustomItemsPlugin plugin, Location spawnLoc) {
         this.plugin = plugin;
 
         bossBar = Bukkit.createBossBar(
-            "\u00a76\u00a7lEagle's Baby Boss",
+            "\u00a76\u00a7lEagle's Baby",
             BarColor.YELLOW,
             BarStyle.SEGMENTED_10
         );
@@ -71,7 +76,7 @@ public class EagleBoss {
         startTasks();
 
         broadcastNearby(spawnLoc, 150,
-            "\u00a74\u00a7l\u26a0 \u00a7e\u00a7lEagle's Baby Boss \u00a74\u00a7lhas descended! \u26a0");
+            "\u00a74\u00a7l\u26a0 \u00a7e\u00a7lEagle's Baby \u00a74\u00a7lhas descended! \u26a0");
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_PHANTOM_AMBIENT, 2f, 2f);
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_WITHER_SPAWN, 1f, 1.8f);
     }
@@ -80,7 +85,7 @@ public class EagleBoss {
     private Phantom spawnPhantom(Location loc) {
         Phantom p = (Phantom) loc.getWorld().spawnEntity(loc, EntityType.PHANTOM);
         p.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
-        p.setCustomName("\u00a76\u00a7lEagle's Baby Boss");
+        p.setCustomName("\u00a76\u00a7lEagle's Baby");
         p.setCustomNameVisible(true);
         p.setAI(false);
         p.setGravity(false);
@@ -99,18 +104,12 @@ public class EagleBoss {
     }
 
     // ── Cooldown reset ────────────────────────────────────────────────────────
-    // Phase 1: base cooldowns already ÷2 (2× faster from 100%)
-    // Phase 2: ÷2 again (4× faster total)
-    // Phase 3: slicer only, 5–8s gap ÷2
     private void resetAbilityCooldowns() {
-        // Base already halved (2× faster from the start)
-        // Phase 2+: halve again (4× faster total)
         double mult = (phase >= 2) ? 0.25 : 0.5;
-
-        // Wind burst: 3–10s base at 1× → ÷2 = 1.5–5s at phase 1
         ticksUntilWindBurst = (int)(((3 + random.nextInt(8)) * 20) * mult);
-        // Slicer: 15–20s base at 1× → ÷2 = 7.5–10s at phase 1
         ticksUntilSlicer    = (int)(((15 + random.nextInt(6)) * 20) * mult);
+        // Swarm always 45 seconds regardless of phase
+        ticksUntilSwarm     = SWARM_COOLDOWN;
     }
 
     // ── Tasks ─────────────────────────────────────────────────────────────────
@@ -138,7 +137,6 @@ public class EagleBoss {
     // ── Phase transitions ─────────────────────────────────────────────────────
     private void checkPhaseTransition() {
         double pct = phantom.getHealth() / MAX_HP;
-        // Phase 3 now triggers at 5% instead of 25%
         int newPhase = pct > 0.5 ? 1 : pct > 0.05 ? 2 : 3;
         if (newPhase > phase) {
             phase = newPhase;
@@ -149,7 +147,7 @@ public class EagleBoss {
     private void onPhaseChange() {
         Location loc = phantom.getLocation();
         String msg = phase == 2
-            ? "\u00a7c\u00a7lEagle's Baby Boss enrages at half health! \u00a77(4\u00d7 speed)"
+            ? "\u00a7c\u00a7lEagle's Baby enrages at half health! \u00a77(4\u00d7 speed)"
             : "\u00a74\u00a7l\u2762 FRENZY at 5% HP! Slicer spam begins! \u2762";
         broadcastNearby(loc, 150, msg);
         loc.getWorld().playSound(loc, Sound.ENTITY_PHANTOM_HURT, 2f, 0.5f);
@@ -164,11 +162,11 @@ public class EagleBoss {
         double progress = Math.max(0.0, Math.min(1.0, hp / MAX_HP));
         bossBar.setProgress(progress);
         bossBar.setTitle(String.format(
-            "\u00a76\u00a7lEagle's Baby Boss \u00a7e%.0f\u00a77/\u00a7e%.0f HP",
+            "\u00a76\u00a7lEagle's Baby \u00a7e%.0f\u00a77/\u00a7e%.0f HP",
             hp, MAX_HP));
-        if (progress > 0.5)        bossBar.setColor(BarColor.YELLOW);
-        else if (progress > 0.05)  bossBar.setColor(BarColor.RED);
-        else                       bossBar.setColor(BarColor.PURPLE);
+        if (progress > 0.5)       bossBar.setColor(BarColor.YELLOW);
+        else if (progress > 0.05) bossBar.setColor(BarColor.RED);
+        else                      bossBar.setColor(BarColor.PURPLE);
     }
 
     private void updateBossBarPlayers() {
@@ -183,21 +181,33 @@ public class EagleBoss {
         Player target = getNearestPlayer(300);
         if (target == null) return;
 
-        // Phase 3: slicer spam only — no movement between slicers
+        // Phase 3: slicer spam only
         if (phase == 3) {
+            if (ticksUntilSwarm > 0) ticksUntilSwarm--;
+            if (ticksUntilSwarm <= 0) {
+                ticksUntilSwarm = SWARM_COOLDOWN;
+                performSwarm();
+                return;
+            }
             if (ticksUntilSlicer > 0) ticksUntilSlicer--;
             if (ticksUntilSlicer <= 0) {
-                // 5–8s gap, already ÷4 from base
                 ticksUntilSlicer = (int)(((5 + random.nextInt(4)) * 20) * 0.25);
                 performSlicer(target);
             }
             return;
         }
 
-        // Phase 1 & 2: normal rotation
+        // Phase 1 & 2: full rotation
         if (ticksUntilWindBurst > 0) ticksUntilWindBurst--;
         if (ticksUntilSlicer    > 0) ticksUntilSlicer--;
+        if (ticksUntilSwarm     > 0) ticksUntilSwarm--;
 
+        // Swarm takes highest priority
+        if (ticksUntilSwarm <= 0) {
+            ticksUntilSwarm = SWARM_COOLDOWN;
+            performSwarm();
+            return;
+        }
         if (ticksUntilSlicer <= 0) {
             double mult = phase >= 2 ? 0.25 : 0.5;
             ticksUntilSlicer = (int)(((15 + random.nextInt(6)) * 20) * mult);
@@ -211,7 +221,6 @@ public class EagleBoss {
             return;
         }
 
-        // Charge gap also 2× faster from start, 4× at phase 2
         int chargeGap = phase >= 2 ? 10 : 20;
         idleTicks++;
         if (idleTicks >= chargeGap) {
@@ -220,7 +229,7 @@ public class EagleBoss {
         }
     }
 
-    // ── Talon Charge — ascend CHARGE_HEIGHT above player, then dive ───────────
+    // ── Talon Charge — ascend CHARGE_HEIGHT above player ─────────────────────
     private void startTalonCharge(final Player target) {
         state = State.ASCENDING_FOR_CHARGE;
         phantom.getWorld().playSound(phantom.getLocation(),
@@ -253,7 +262,7 @@ public class EagleBoss {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // ── Talon Dive — accelerating, 37.5 display HP × seconds (2.5× of 15) ────
+    // ── Talon Dive — flat 40 display HP (8 vanilla HP) always ────────────────
     private void startTalonDive(final Player target) {
         state = State.DIVING;
         broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7l\u25bc DIVING! \u25bc");
@@ -263,6 +272,7 @@ public class EagleBoss {
         new BukkitRunnable() {
             int    ticksFall = 0;
             double speed     = DIVE_BASE;
+            boolean hit      = false;
 
             @Override
             public void run() {
@@ -275,12 +285,11 @@ public class EagleBoss {
                 Location tLoc   = target.getLocation();
                 Vector toTarget = tLoc.toVector().subtract(cur.toVector());
 
-                if (toTarget.length() < 2.5) {
-                    // 15 display HP × seconds × DMG_MULT, ÷5 for vanilla
-                    double displayDmg = 15.0;
-                    target.damage(displayDmg / 5.0, phantom);
-                    target.sendMessage("\u00a74\u00a7lEagle's talons struck you for \u00a7c"
-                        + String.format("%.0f", displayDmg) + " HP\u00a74\u00a7l!");
+                if (toTarget.length() < 2.5 && !hit) {
+                    hit = true;
+                    // Always flat 40 display HP regardless of dive duration
+                    target.damage(TALON_DAMAGE, phantom);
+                    target.sendMessage("\u00a74\u00a7lEagle's talons struck you for \u00a7c40 HP\u00a74\u00a7l!");
                     phantom.getWorld().playSound(phantom.getLocation(),
                         Sound.ENTITY_PHANTOM_BITE, 2f, 0.8f);
                     phantom.getWorld().spawnParticle(Particle.CRIT,
@@ -308,7 +317,7 @@ public class EagleBoss {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // ── Wind Burst — fires 3 feathers simultaneously each trigger ─────────────
+    // ── Wind Burst — 10 rounds, 3 feathers per round ─────────────────────────
     private void performWindBurst(final Player target) {
         state = State.WIND_BURST;
 
@@ -323,7 +332,7 @@ public class EagleBoss {
 
                 if (cur.distance(dest) < 4.0) {
                     cancel();
-                    fireThreeFeathers(target);
+                    startFeatherRounds(target);
                     return;
                 }
 
@@ -335,45 +344,59 @@ public class EagleBoss {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // Fire exactly 3 feathers at once with slight spread
-    private void fireThreeFeathers(final Player target) {
+    // 10 rounds with a short interval between each round
+    // Each round fires exactly 3 feathers simultaneously
+    private void startFeatherRounds(final Player target) {
         broadcastNearby(phantom.getLocation(), 150, "\u00a75\u00a7l\u2604 WIND BURST! \u2604");
         phantom.getWorld().playSound(phantom.getLocation(), Sound.ENTITY_PHANTOM_FLAP, 2f, 2f);
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_ELDER_GUARDIAN_CURSE, 1f, 1.5f);
 
-        Location from = phantom.getLocation().clone().add(0, 1, 0);
-
-        for (int i = 0; i < 3; i++) {
-            Vector baseDir = target.getEyeLocation().toVector()
-                    .subtract(from.toVector()).normalize();
-            // Spread the 3 feathers in a slight fan
-            Vector spread = new Vector(
-                (random.nextDouble() - 0.5) * 0.3,
-                (random.nextDouble() - 0.5) * 0.15,
-                (random.nextDouble() - 0.5) * 0.3
-            );
-            double spd = 0.8 + random.nextDouble() * 0.4;
-            Vector vel = baseDir.add(spread).normalize().multiply(spd);
-
-            Item feather = phantom.getWorld().dropItem(from, new ItemStack(Material.FEATHER));
-            feather.setVelocity(vel);
-            feather.setPickupDelay(Integer.MAX_VALUE);
-            feather.setGlowing(true);
-            feather.setMetadata(META_EAGLE_FEATHER, new FixedMetadataValue(plugin, true));
-            trackFeather(feather);
-        }
-
-        phantom.getWorld().spawnParticle(Particle.CLOUD, from, 10, 0.5, 0.5, 0.5, 0.05);
-
         new BukkitRunnable() {
-            @Override public void run() { state = State.IDLE; }
-        }.runTaskLater(plugin, 20L);
+            int round = 0;
+
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) {
+                    state = State.IDLE;
+                    cancel();
+                    return;
+                }
+                if (round >= 10) {
+                    state = State.IDLE;
+                    cancel();
+                    return;
+                }
+
+                // Fire 3 feathers simultaneously this round
+                Location from = phantom.getLocation().clone().add(0, 1, 0);
+                for (int i = 0; i < 3; i++) {
+                    Vector baseDir = target.getEyeLocation().toVector()
+                            .subtract(from.toVector()).normalize();
+                    Vector spread = new Vector(
+                        (random.nextDouble() - 0.5) * 0.3,
+                        (random.nextDouble() - 0.5) * 0.15,
+                        (random.nextDouble() - 0.5) * 0.3
+                    );
+                    double spd = 0.8 + random.nextDouble() * 0.4;
+                    Vector vel = baseDir.add(spread).normalize().multiply(spd);
+
+                    Item feather = phantom.getWorld().dropItem(from, new ItemStack(Material.FEATHER));
+                    feather.setVelocity(vel);
+                    feather.setPickupDelay(Integer.MAX_VALUE);
+                    feather.setGlowing(true);
+                    feather.setMetadata(META_EAGLE_FEATHER, new FixedMetadataValue(plugin, true));
+                    trackFeather(feather);
+                }
+
+                phantom.getWorld().spawnParticle(Particle.CLOUD, from, 5, 0.3, 0.3, 0.3, 0.03);
+                round++;
+            }
+        // Fire one round every 6 ticks (0.3 seconds between each round of 3)
+        }.runTaskTimer(plugin, 0L, 6L);
     }
 
-    // Feather proximity hit:
-    // - Impact: 12.5 display HP (5 × 2.5 = 12.5 → 2.5 vanilla HP)
-    // - Bleeding: 3 display HP (0.6 vanilla HP) every second for 3 seconds
+    // Feather proximity hit — 5 display HP (1 vanilla HP) + bleeding
     private void trackFeather(final Item feather) {
         new BukkitRunnable() {
             int ticks = 0;
@@ -387,20 +410,16 @@ public class EagleBoss {
                 }
                 for (Entity e : feather.getNearbyEntities(1.0, 1.0, 1.0)) {
                     if (e instanceof Player p && !p.isDead()) {
-                        // Impact damage: 5 display HP × 2.5 = 12.5 display HP = 2.5 vanilla HP
-                        p.damage(1.0 * DMG_MULT, phantom);
+                        // 5 display HP = 1 vanilla HP
+                        p.damage(1.0, phantom);
                         p.sendMessage("\u00a7c\u00a7lFeather hit! \u00a7c\u2639 You are bleeding!");
-
                         feather.getWorld().spawnParticle(Particle.CRIT,
                             feather.getLocation(), 5, 0.1, 0.1, 0.1, 0.05);
                         feather.getWorld().spawnParticle(Particle.BLOCK_CRACK,
-                            feather.getLocation().add(0, 0.5, 0), 8,
-                            0.2, 0.2, 0.2, 0.05,
+                            feather.getLocation().clone().add(0, 0.5, 0),
+                            8, 0.2, 0.2, 0.2, 0.05,
                             Material.REDSTONE_WIRE.createBlockData());
-
-                        // Bleeding: 3 display HP (0.6 vanilla HP) per second for 3 seconds
                         applyBleeding(p);
-
                         feather.remove();
                         cancel();
                         return;
@@ -427,7 +446,161 @@ public class EagleBoss {
                     Sound.ENTITY_PLAYER_HURT, 0.5f, 0.8f);
                 seconds++;
             }
-        }.runTaskTimer(plugin, 20L, 20L); // every second
+        }.runTaskTimer(plugin, 20L, 20L);
+    }
+
+    // ── Eagle's Swarm — tornado ability ───────────────────────────────────────
+    // Phase 1: Boss spins in circle for 3.5s building tornado,
+    // then holds for 7s pulling all entities in 10 blocks.
+    // On end: Slowness II + Weakness II for 20s to anyone still in radius.
+    private void performSwarm() {
+        state = State.SWARM;
+        broadcastNearby(phantom.getLocation(), 150,
+            "\u00a7b\u00a7l\u2604 EAGLE'S SWARM! \u2604 \u00a77Get away from the tornado!");
+        phantom.getWorld().playSound(phantom.getLocation(),
+            Sound.ENTITY_ENDER_DRAGON_FLAP, 2f, 0.6f);
+
+        final Location center = phantom.getLocation().clone();
+
+        // ── Phase 1: Spin for 3.5 seconds forming tornado ─────────────────────
+        new BukkitRunnable() {
+            int    tick  = 0;
+            double angle = 0;
+
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+
+                if (tick >= SWARM_FORM_TICKS) {
+                    cancel();
+                    holdTornado(center);
+                    return;
+                }
+
+                // Orbit around center — radius shrinks from 4 to 1 as tornado forms
+                double progress = (double) tick / SWARM_FORM_TICKS;
+                double radius   = 4.0 - (3.0 * progress); // 4 → 1
+                angle += 0.25; // fast spin
+
+                double x = center.getX() + Math.cos(angle) * radius;
+                double z = center.getZ() + Math.sin(angle) * radius;
+                Location spinLoc = new Location(center.getWorld(), x,
+                    center.getY() + 1, z);
+                phantom.teleport(spinLoc);
+
+                // Tornado forming particles
+                spawnTornadoParticles(center, progress);
+
+                // Growing wind sound
+                if (tick % 10 == 0) {
+                    center.getWorld().playSound(center,
+                        Sound.ENTITY_PHANTOM_FLAP, 1.5f,
+                        0.5f + (float)(progress * 1.0f));
+                }
+
+                tick++;
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    // ── Phase 2: Hold tornado for 7 seconds, pull entities ───────────────────
+    private void holdTornado(final Location center) {
+        broadcastNearby(center, 150,
+            "\u00a7b\u00a7l\u2605 TORNADO ACTIVE! \u2605");
+        center.getWorld().playSound(center,
+            Sound.ENTITY_ENDER_DRAGON_GROWL, 2f, 1.2f);
+
+        new BukkitRunnable() {
+            int tick = 0;
+
+            @Override
+            public void run() {
+                if (!alive || phantom.isDead()) {
+                    endTornado(center);
+                    cancel();
+                    return;
+                }
+
+                if (tick >= SWARM_HOLD_TICKS) {
+                    cancel();
+                    endTornado(center);
+                    return;
+                }
+
+                // Keep phantom hovering at center during tornado
+                phantom.teleport(center.clone().add(0, 2, 0));
+
+                // Tornado particles — full column
+                spawnTornadoParticles(center, 1.0);
+
+                // Pull all nearby entities toward center each tick
+                for (Entity e : center.getWorld().getNearbyEntities(
+                        center, SWARM_RADIUS, SWARM_RADIUS, SWARM_RADIUS)) {
+                    if (e.equals(phantom)) continue;
+                    if (e instanceof LivingEntity) {
+                        Vector pull = center.toVector()
+                                .subtract(e.getLocation().toVector())
+                                .normalize()
+                                .multiply(0.25); // gentle pull per tick
+                        pull.setY(0.05); // slight upward lift
+                        e.setVelocity(pull);
+                    }
+                }
+
+                // Ambient tornado sound
+                if (tick % 15 == 0) {
+                    center.getWorld().playSound(center,
+                        Sound.ENTITY_ENDER_DRAGON_FLAP, 1.5f, 1.5f);
+                }
+
+                tick++;
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
+    }
+
+    // ── Phase 3: Tornado ends — apply debuffs ─────────────────────────────────
+    private void endTornado(final Location center) {
+        broadcastNearby(center, 150,
+            "\u00a77\u00a7lThe tornado dissipates... \u00a7c\u00a7lYou feel weakened!");
+        center.getWorld().playSound(center,
+            Sound.ENTITY_PHANTOM_AMBIENT, 2f, 1.5f);
+        center.getWorld().spawnParticle(Particle.CLOUD,
+            center.clone().add(0, 3, 0), 60, 3, 3, 3, 0.15);
+
+        // Apply Slowness II + Weakness II (20 seconds) to anyone still nearby
+        for (Entity e : center.getWorld().getNearbyEntities(
+                center, SWARM_RADIUS, SWARM_RADIUS, SWARM_RADIUS)) {
+            if (!(e instanceof Player p)) continue;
+            p.addPotionEffect(new PotionEffect(
+                PotionEffectType.SLOW, 20 * 20, 1, false, true, true));
+            p.addPotionEffect(new PotionEffect(
+                PotionEffectType.WEAKNESS, 20 * 20, 1, false, true, true));
+            p.sendMessage("\u00a7c\u00a7lThe tornado left you \u00a7cslowed \u00a7c\u00a7land \u00a7cweak \u00a7c\u00a7lfor 20 seconds!");
+        }
+
+        state = State.IDLE;
+    }
+
+    // Shared tornado particle effect — intensity scales with progress (0→1)
+    private void spawnTornadoParticles(Location center, double intensity) {
+        int layers = 6;
+        for (int layer = 0; layer < layers; layer++) {
+            double heightFraction = (double) layer / layers;
+            double y = center.getY() + heightFraction * 8.0; // tornado height 8 blocks
+            double r = intensity * (1.5 + heightFraction * 2.5); // wider at top
+            for (int i = 0; i < 8; i++) {
+                double a = (Math.PI * 2.0 / 8) * i + (heightFraction * 3);
+                center.getWorld().spawnParticle(Particle.CLOUD,
+                    center.clone().add(Math.cos(a) * r, y - center.getY(), Math.sin(a) * r),
+                    1, 0.05, 0.1, 0.05, 0.02);
+                if (intensity > 0.5) {
+                    center.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
+                        center.clone().add(Math.cos(a) * r * 0.7,
+                            y - center.getY(), Math.sin(a) * r * 0.7),
+                        1, 0, 0, 0, 0);
+                }
+            }
+        }
     }
 
     // ── Slicer ────────────────────────────────────────────────────────────────
@@ -447,7 +620,7 @@ public class EagleBoss {
     private void executeSlashChain(Player target, boolean[] fronts, int index) {
         if (index >= fronts.length) {
             if (phase == 3) {
-                // Phase 3: immediately loop — no ascending
+                // Phase 3: no ascending — immediately loop slicer
                 new BukkitRunnable() {
                     @Override public void run() {
                         if (!alive || phantom.isDead()) { state = State.IDLE; return; }
@@ -509,12 +682,12 @@ public class EagleBoss {
     private void doSlash(Player target) {
         if (!alive || phantom.isDead()) return;
         if (phantom.getLocation().distance(target.getLocation()) < 5.0) {
-            // 30 display HP × 2.5 = 75 display HP (phase 1/2)
-            // 45 display HP × 2.5 = 112.5 display HP (phase 3)
+            // Phase 1/2: 30 display HP (6 vanilla HP)
+            // Phase 3: 40 display HP (8 vanilla HP)
             double displayDmg = phase == 3 ? 40.0 : 30.0;
             target.damage(displayDmg / 5.0, phantom);
             target.sendMessage("\u00a7c\u00a7lSliced for \u00a74"
-                + (int) displayDmg + " HP\u00a7c\u00a7l!");;
+                + (int) displayDmg + " HP\u00a7c\u00a7l!");
         }
         phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
             phantom.getLocation().clone().add(0, 1, 0), 20, 1.2, 0.5, 1.2, 0.1);
@@ -524,7 +697,7 @@ public class EagleBoss {
             Sound.ENTITY_PLAYER_ATTACK_SWEEP, 2f, 1.0f);
     }
 
-    // ── Smooth ascend (phase 1 and 2 only) ───────────────────────────────────
+    // ── Smooth ascend ─────────────────────────────────────────────────────────
     private void smoothAscend() {
         state = State.ASCENDING;
         Player target = getNearestPlayer(300);

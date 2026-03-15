@@ -3,8 +3,13 @@ package com.customitems.plugin;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.boss.BarColor;
+import org.bukkit.boss.BarStyle;
+import org.bukkit.boss.BossBar;
 import org.bukkit.entity.*;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
@@ -16,14 +21,19 @@ public class EagleBoss {
     public static final String META_EAGLE_BOSS    = "eagle_boss";
     public static final String META_EAGLE_FEATHER = "eagle_feather";
 
-    private static final double MAX_HP_DISPLAY = 5120.0; // 1024 vanilla HP × 5 — Spigot's hard cap
-    private static final double MAX_HP_VANILLA = 1024.0; // maximum allowed by Spigot 1.20.x
-    
+    // Virtual HP — tracked by us, not by Bukkit
+    // 1250 vanilla HP × 5 = 6250 display HP
+    private static final double VIRTUAL_HP_MAX    = 6250.0;
+    // Vanilla HP locked at Spigot's hard cap — phantom never dies from vanilla damage
+    private static final double VANILLA_HP_CAP    = 1024.0;
+
     private final CustomItemsPlugin plugin;
     private final Phantom phantom;
     private boolean alive = false;
+    private double virtualHP = VIRTUAL_HP_MAX;
     private final Random random = new Random();
     private final List<BukkitTask> tasks = new ArrayList<>();
+    private final BossBar bossBar;
 
     private enum State { IDLE, CHARGING, WIND_BURST, SLICER, ASCENDING }
     private State state = State.IDLE;
@@ -34,12 +44,21 @@ public class EagleBoss {
 
     public EagleBoss(CustomItemsPlugin plugin, Location spawnLoc) {
         this.plugin = plugin;
+
+        // Create boss bar
+        bossBar = Bukkit.createBossBar(
+            "\u00a76\u00a7lEagle's Baby Boss",
+            BarColor.YELLOW,
+            BarStyle.SEGMENTED_10
+        );
+
         this.phantom = spawnPhantom(spawnLoc);
         ticksUntilWindBurst = (10 + random.nextInt(21)) * 20;
         ticksUntilSlicer    = (30 + random.nextInt(11)) * 20;
         startTasks();
+
         broadcastNearby(spawnLoc, 100,
-            "\u00a74\u00a7l\u26a0 Eagle's Baby Boss has descended! \u26a0");
+            "\u00a74\u00a7l\u26a0 Eagle's Baby Boss has descended upon you! \u26a0");
         spawnLoc.getWorld().playSound(spawnLoc,
             Sound.ENTITY_PHANTOM_AMBIENT, 2f, 2f);
     }
@@ -52,39 +71,106 @@ public class EagleBoss {
         p.setCustomNameVisible(true);
         p.setAI(false);
         p.setGravity(false);
-        p.setSize(3);
+        p.setRemoveWhenFarAway(false);
+
+        // Lock vanilla HP at cap — we manage real HP ourselves
         AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
-        if (maxHp != null) maxHp.setBaseValue(MAX_HP_VANILLA);
-        p.setHealth(MAX_HP_VANILLA);
+        if (maxHp != null) maxHp.setBaseValue(VANILLA_HP_CAP);
+        p.setHealth(VANILLA_HP_CAP);
+
+        // Permanent fire resistance so it never catches fire from environment
+        p.addPotionEffect(new PotionEffect(
+            PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+
         alive = true;
         return p;
     }
 
     // ── Tasks ─────────────────────────────────────────────────────────────────
     private void startTasks() {
-        BukkitTask t = new BukkitRunnable() {
+        // Main AI + boss bar + fire suppression tick
+        BukkitTask main = new BukkitRunnable() {
             @Override
             public void run() {
                 if (!alive || phantom == null || phantom.isDead()) {
                     cancel();
                     return;
                 }
-                updateName();
+
+                // Suppress daylight fire every tick
+                phantom.setFireTicks(0);
+                phantom.setVisualFire(false);
+
+                // Restore vanilla HP to cap so Bukkit never kills it
+                if (phantom.getHealth() < VANILLA_HP_CAP) {
+                    phantom.setHealth(VANILLA_HP_CAP);
+                }
+
+                updateBossBar();
+
                 if (state == State.IDLE) {
                     mainTick();
                 }
+
+                // Update boss bar visibility for nearby players
+                updateBossBarPlayers();
             }
         }.runTaskTimer(plugin, 1L, 1L);
-        tasks.add(t);
+        tasks.add(main);
     }
+
+    // ── Boss bar helpers ──────────────────────────────────────────────────────
+    private void updateBossBar() {
+        double progress = Math.max(0.0, Math.min(1.0, virtualHP / VIRTUAL_HP_MAX));
+        bossBar.setProgress(progress);
+        int displayHP = (int) Math.ceil(virtualHP);
+        bossBar.setTitle(String.format(
+            "\u00a76\u00a7lEagle's Baby Boss \u00a7e%d\u00a77/\u00a7e%d HP",
+            displayHP, (int) VIRTUAL_HP_MAX));
+
+        // Color changes with HP
+        if (progress > 0.5)      bossBar.setColor(BarColor.YELLOW);
+        else if (progress > 0.25) bossBar.setColor(BarColor.RED);
+        else                      bossBar.setColor(BarColor.PURPLE);
+    }
+
+    private void updateBossBarPlayers() {
+        List<Player> nearby = getPlayersInRange(100);
+        Set<Player> currentViewers = new HashSet<>(bossBar.getPlayers());
+
+        // Add new nearby players
+        for (Player p : nearby) {
+            if (!currentViewers.contains(p)) bossBar.addPlayer(p);
+        }
+        // Remove players who moved away
+        for (Player p : currentViewers) {
+            if (!nearby.contains(p)) bossBar.removePlayer(p);
+        }
+    }
+
+    // ── Apply virtual damage (called from EagleBossListener) ─────────────────
+    public boolean applyVirtualDamage(double vanillaDamage) {
+        if (!alive) return false;
+        // Convert vanilla damage to display HP (×5)
+        double displayDamage = vanillaDamage * 5.0;
+        virtualHP -= displayDamage;
+
+        if (virtualHP <= 0) {
+            virtualHP = 0;
+            return true; // signal death
+        }
+        return false;
+    }
+
+    public double getVirtualHP() { return virtualHP; }
 
     // ── Main tick ─────────────────────────────────────────────────────────────
     private void mainTick() {
-        Player target = getNearestPlayer(100);
+        Player target = getNearestPlayer(200);
         if (target == null) return;
 
         if (ticksUntilWindBurst > 0) ticksUntilWindBurst--;
-        if (ticksUntilSlicer > 0)    ticksUntilSlicer--;
+        if (ticksUntilSlicer    > 0) ticksUntilSlicer--;
 
         if (ticksUntilSlicer <= 0) {
             ticksUntilSlicer = (30 + random.nextInt(11)) * 20;
@@ -96,6 +182,7 @@ public class EagleBoss {
             performWindBurst(target);
             return;
         }
+
         idleTicks++;
         if (idleTicks >= 40) {
             idleTicks = 0;
@@ -118,10 +205,7 @@ public class EagleBoss {
             @Override
             public void run() {
                 if (!alive || phantom.isDead() || done) {
-                    if (!done) {
-                        done = true;
-                        state = State.IDLE;
-                    }
+                    if (!done) { done = true; state = State.IDLE; }
                     cancel();
                     return;
                 }
@@ -129,8 +213,10 @@ public class EagleBoss {
                 Location pLoc = phantom.getLocation();
                 Location tLoc = target.getLocation();
 
-                double dx = Math.max(-0.5, Math.min(0.5, (tLoc.getX() - pLoc.getX()) * 0.1));
-                double dz = Math.max(-0.5, Math.min(0.5, (tLoc.getZ() - pLoc.getZ()) * 0.1));
+                double dx = Math.max(-0.5, Math.min(0.5,
+                        (tLoc.getX() - pLoc.getX()) * 0.1));
+                double dz = Math.max(-0.5, Math.min(0.5,
+                        (tLoc.getZ() - pLoc.getZ()) * 0.1));
                 velocityY -= 9.8 / 20.0;
                 ticksFall++;
 
@@ -138,6 +224,7 @@ public class EagleBoss {
                 Vector toPlayer = tLoc.toVector().subtract(newLoc.toVector());
                 if (toPlayer.length() > 0) newLoc.setDirection(toPlayer);
                 phantom.teleport(newLoc);
+
                 phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
                     pLoc, 3, 0.3, 0.3, 0.3, 0);
 
@@ -274,7 +361,7 @@ public class EagleBoss {
     // ── Ascend ────────────────────────────────────────────────────────────────
     private void ascend() {
         state = State.ASCENDING;
-        Player target = getNearestPlayer(100);
+        Player target = getNearestPlayer(200);
         final double targetY = (target != null
             ? target.getLocation().getY()
             : phantom.getLocation().getY()) + 20;
@@ -301,6 +388,8 @@ public class EagleBoss {
     // ── Death ─────────────────────────────────────────────────────────────────
     public void die() {
         alive = false;
+        bossBar.removeAll();
+        bossBar.setVisible(false);
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
         if (phantom != null && !phantom.isDead()) {
@@ -313,19 +402,15 @@ public class EagleBoss {
 
     public void cleanup() {
         alive = false;
+        bossBar.removeAll();
+        bossBar.setVisible(false);
         tasks.forEach(BukkitTask::cancel);
         tasks.clear();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    private void updateName() {
-        int current = (int) Math.ceil(phantom.getHealth() * 5);
-        phantom.setCustomName(String.format(
-            "\u00a76\u00a7lEagle's Baby Boss \u00a7e[%d/%d HP]",
-            current, (int) MAX_HP_DISPLAY));
-    }
-
     private Player getNearestPlayer(double radius) {
+        // First try nearby entities (fast)
         Player nearest = null;
         double minDist  = Double.MAX_VALUE;
         for (Entity e : phantom.getNearbyEntities(radius, radius, radius)) {
@@ -333,13 +418,31 @@ public class EagleBoss {
             double d = e.getLocation().distanceSquared(phantom.getLocation());
             if (d < minDist) { minDist = d; nearest = p; }
         }
+        if (nearest != null) return nearest;
+
+        // Fallback: scan all online players in same world
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (p.isDead()) continue;
+            if (!p.getWorld().equals(phantom.getWorld())) continue;
+            double d = p.getLocation().distanceSquared(phantom.getLocation());
+            if (d < minDist) { minDist = d; nearest = p; }
+        }
         return nearest;
     }
 
-    private void broadcastNearby(Location loc, double radius, String msg) {
-        for (Entity e : loc.getWorld().getNearbyEntities(loc, radius, radius, radius)) {
-            if (e instanceof Player p) p.sendMessage(msg);
+    private List<Player> getPlayersInRange(double radius) {
+        List<Player> result = new ArrayList<>();
+        for (Player p : Bukkit.getOnlinePlayers()) {
+            if (!p.getWorld().equals(phantom.getWorld())) continue;
+            if (p.getLocation().distance(phantom.getLocation()) <= radius) {
+                result.add(p);
+            }
         }
+        return result;
+    }
+
+    private void broadcastNearby(Location loc, double radius, String msg) {
+        for (Player p : getPlayersInRange(radius)) p.sendMessage(msg);
     }
 
     public Phantom getPhantom() { return phantom; }

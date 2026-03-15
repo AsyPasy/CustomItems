@@ -26,6 +26,7 @@ public class ItemListener implements Listener {
                 && event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
         Player player = event.getPlayer();
         ItemStack item = player.getInventory().getItemInMainHand();
+
         if (ValorDagger.isValorDagger(item)) {
             event.setCancelled(true);
             ValorDagger.activate(player, plugin);
@@ -37,7 +38,7 @@ public class ItemListener implements Listener {
         }
     }
 
-    // ── Valor Dagger melee ────────────────────────────────────────────────────
+    // ── Valor Dagger melee damage ─────────────────────────────────────────────
     @EventHandler(priority = EventPriority.HIGH)
     public void onValorDaggerHit(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player player)) return;
@@ -46,7 +47,7 @@ public class ItemListener implements Listener {
         event.setDamage(ValorDagger.calculateDamage(held, ValorDagger.isCriticalHit(player)));
     }
 
-    // ── Bow shoot ─────────────────────────────────────────────────────────────
+    // ── Eagle's Eye Bow shoot ─────────────────────────────────────────────────
     @EventHandler
     public void onBowShoot(EntityShootBowEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
@@ -57,7 +58,7 @@ public class ItemListener implements Listener {
         EaglesEyeBow.onArrowShoot(player, arrow, event.getForce(), bow, plugin);
     }
 
-    // ── Arrow hits entity ─────────────────────────────────────────────────────
+    // ── Eagle's Eye arrow hits entity ─────────────────────────────────────────
     @EventHandler(priority = EventPriority.HIGH)
     public void onArrowHitEntity(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Arrow arrow)) return;
@@ -68,39 +69,42 @@ public class ItemListener implements Listener {
         EaglesEyeBow.onArrowHitEntity(arrow, hit, shooter, plugin);
     }
 
-    // ── Valor Dagger crafting — requires 12 gold ingots in center slot ────────
-    // Pattern:
-    //  _ N _      (N = Iron Nugget)
-    //  N G N      (G = Gold Ingot ×12 in one slot)
-    //  _ S _      (S = Stick)
+    // ── Crafting: Valor Dagger (12 gold ingots) ───────────────────────────────
+    // Pattern:  _ N _  /  N G N  /  _ S _
     @EventHandler
     public void onPrepareCraft(PrepareItemCraftEvent event) {
         CraftingInventory inv = event.getInventory();
-        ItemStack[] matrix = inv.getMatrix();
-        if (matrix.length != 9) return; // must be 3x3 crafting table
+        ItemStack[] m = inv.getMatrix();
+        if (m.length != 9) return;
 
-        if (isValorDaggerPattern(matrix)) {
+        if (isValorDaggerPattern(m)) {
             inv.setResult(ValorDagger.createValorDagger());
-        } else if (wouldResultInValorDagger(inv.getResult())) {
-            inv.setResult(new ItemStack(Material.AIR));
+        } else if (isEaglesBowPattern(m)) {
+            inv.setResult(EaglesEyeBow.createEaglesEyeBow());
+        } else {
+            // Clear result if pattern almost matched but not quite
+            if (wouldMatchEither(inv.getResult())) {
+                inv.setResult(new ItemStack(Material.AIR));
+            }
         }
     }
 
     @EventHandler
     public void onCraft(CraftItemEvent event) {
         ItemStack result = event.getInventory().getResult();
-        if (result == null || !ValorDagger.isValorDagger(result)) return;
+        if (result == null) return;
+        ItemStack[] m = event.getInventory().getMatrix();
+        if (m.length != 9) return;
 
-        ItemStack[] matrix = event.getInventory().getMatrix();
-        if (matrix.length != 9) return;
-
-        // Center slot is index 4 — Bukkit auto-consumes 1, we remove 11 more
-        ItemStack center = matrix[4];
-        if (center != null && center.getType() == Material.GOLD_INGOT
-                && center.getAmount() >= 12) {
-            center.setAmount(center.getAmount() - 11);
-            matrix[4] = center;
-            event.getInventory().setMatrix(matrix);
+        // Consume extra 11 gold ingots for Valor Dagger
+        if (ValorDagger.isValorDagger(result)) {
+            ItemStack center = m[4];
+            if (center != null && center.getType() == Material.GOLD_INGOT
+                    && center.getAmount() >= 12) {
+                center.setAmount(center.getAmount() - 11);
+                m[4] = center;
+                event.getInventory().setMatrix(m);
+            }
         }
     }
 
@@ -109,8 +113,8 @@ public class ItemListener implements Listener {
     public void onEnchant(EnchantItemEvent event) {
         ItemStack item = event.getItem();
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            if (ValorDagger.isValorDagger(item))    ValorDagger.applyMeta(item);
-            if (EaglesEyeBow.isEaglesEyeBow(item))  EaglesEyeBow.applyMeta(item);
+            if (ValorDagger.isValorDagger(item))   ValorDagger.applyMeta(item);
+            if (EaglesEyeBow.isEaglesEyeBow(item)) EaglesEyeBow.applyMeta(item);
         }, 1L);
     }
 
@@ -123,34 +127,50 @@ public class ItemListener implements Listener {
         if (EaglesEyeBow.isEaglesEyeBow(result)) EaglesEyeBow.applyMeta(result);
     }
 
-    // ── Pattern helpers ───────────────────────────────────────────────────────
+    // ── Pattern validators ────────────────────────────────────────────────────
+
+    // Valor Dagger:
+    // [ ] [N] [ ]
+    // [N] [G×12] [N]
+    // [ ] [S] [ ]
     private boolean isValorDaggerPattern(ItemStack[] m) {
-        return isEmpty(m[0])
-            && isType(m[1], Material.IRON_NUGGET)
-            && isEmpty(m[2])
-            && isType(m[3], Material.IRON_NUGGET)
+        return empty(m[0]) && is(m[1], Material.IRON_NUGGET)  && empty(m[2])
+            && is(m[3], Material.IRON_NUGGET)
             && isGoldStack(m[4], 12)
-            && isType(m[5], Material.IRON_NUGGET)
-            && isEmpty(m[6])
-            && isType(m[7], Material.STICK)
-            && isEmpty(m[8]);
+            && is(m[5], Material.IRON_NUGGET)
+            && empty(m[6]) && is(m[7], Material.STICK) && empty(m[8]);
     }
 
-    private boolean wouldResultInValorDagger(ItemStack result) {
-        return result != null && ValorDagger.isValorDagger(result);
+    // Eagle's Eye Bow:
+    // [E] [S] [E]
+    // [S] [ ] [S]
+    // [E] [S] [E]
+    // E = Eagle's Eye item, S = String
+    private boolean isEaglesBowPattern(ItemStack[] m) {
+        return isEye(m[0]) && is(m[1], Material.STRING) && isEye(m[2])
+            && is(m[3], Material.STRING) && empty(m[4]) && is(m[5], Material.STRING)
+            && isEye(m[6]) && is(m[7], Material.STRING) && isEye(m[8]);
     }
 
-    private boolean isEmpty(ItemStack item) {
+    private boolean wouldMatchEither(ItemStack result) {
+        return result != null
+            && (ValorDagger.isValorDagger(result) || EaglesEyeBow.isEaglesEyeBow(result));
+    }
+
+    private boolean empty(ItemStack item) {
         return item == null || item.getType() == Material.AIR;
     }
 
-    private boolean isType(ItemStack item, Material type) {
+    private boolean is(ItemStack item, Material type) {
         return item != null && item.getType() == type;
     }
 
-    private boolean isGoldStack(ItemStack item, int minAmount) {
-        return item != null
-            && item.getType() == Material.GOLD_INGOT
-            && item.getAmount() >= minAmount;
+    private boolean isGoldStack(ItemStack item, int min) {
+        return item != null && item.getType() == Material.GOLD_INGOT
+                && item.getAmount() >= min;
+    }
+
+    private boolean isEye(ItemStack item) {
+        return EaglesEyeItem.is(item);
     }
 }

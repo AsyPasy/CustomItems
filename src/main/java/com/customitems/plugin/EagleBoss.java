@@ -16,8 +16,8 @@ public class EagleBoss {
     public static final String META_EAGLE_BOSS    = "eagle_boss";
     public static final String META_EAGLE_FEATHER = "eagle_feather";
 
-    private static final double MAX_HP_DISPLAY = 500.0;
-    private static final double MAX_HP_VANILLA = MAX_HP_DISPLAY / 5.0;
+    private static final double MAX_HP_DISPLAY = 12500.0;
+    private static final double MAX_HP_VANILLA = 2500.0;
 
     private final CustomItemsPlugin plugin;
     private final Phantom phantom;
@@ -306,7 +306,7 @@ public class EagleBoss {
         if (phantom != null && !phantom.isDead()) {
             phantom.getWorld().playSound(phantom.getLocation(),
                 Sound.ENTITY_PHANTOM_DEATH, 2f, 1.5f);
-            phantom.getWorld().spawnParticle(Particle.EXPLOSION,
+            phantom.getWorld().spawnParticle(Particle.EXPLOSION_LARGE,
                 phantom.getLocation(), 5, 1, 1, 1, 0);
         }
     }

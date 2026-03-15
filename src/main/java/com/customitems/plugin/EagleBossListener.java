@@ -44,13 +44,27 @@ public class EagleBossListener implements Listener {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Register an existing boss (used on server restart reattach) ───────────
+    // ── Register existing boss (used on server restart reattach) ─────────────
     public void registerBoss(EagleBoss boss) {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Feather item hits player (proximity handled in EagleBoss.trackFeather)
-    // This handler only cleans up feathers that hit blocks ────────────────────
+    // ── Boss attacks bypass armor/resistance/magic modifiers ─────────────────
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onBossDamagePlayer(EntityDamageByEntityEvent event) {
+        if (!(event.getDamager() instanceof Phantom phantom)) return;
+        if (!phantom.hasMetadata(EagleBoss.META_EAGLE_BOSS)) return;
+        if (!(event.getEntity() instanceof Player)) return;
+
+        if (event.isApplicable(EntityDamageEvent.DamageModifier.ARMOR))
+            event.setDamage(EntityDamageEvent.DamageModifier.ARMOR, 0);
+        if (event.isApplicable(EntityDamageEvent.DamageModifier.RESISTANCE))
+            event.setDamage(EntityDamageEvent.DamageModifier.RESISTANCE, 0);
+        if (event.isApplicable(EntityDamageEvent.DamageModifier.MAGIC))
+            event.setDamage(EntityDamageEvent.DamageModifier.MAGIC, 0);
+    }
+
+    // ── Feather hits block — remove it ────────────────────────────────────────
     @EventHandler
     public void onFeatherHitBlock(ProjectileHitEvent event) {
         if (!(event.getEntity() instanceof Arrow arrow)) return;
@@ -58,7 +72,7 @@ public class EagleBossListener implements Listener {
         if (event.getHitBlock() != null) arrow.remove();
     }
 
-    // ── Boss death — vanilla HP hits 0, we handle drops ───────────────────────
+    // ── Boss death — vanilla HP hits 0 ────────────────────────────────────────
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBossDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Phantom phantom)) return;
@@ -78,7 +92,7 @@ public class EagleBossListener implements Listener {
             "\u00a7e\u00a7lEagle's Eyes have dropped!");
     }
 
-    // ── Cleanup on plugin disable ─────────────────────────────────────────────
+    // ── Cleanup ───────────────────────────────────────────────────────────────
     public void cleanup() {
         activeBosses.values().forEach(EagleBoss::cleanup);
         activeBosses.clear();

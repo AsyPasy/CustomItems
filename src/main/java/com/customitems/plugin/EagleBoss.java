@@ -1,7 +1,5 @@
 package com.customitems.plugin;
 
-import org.bukkit.NamespacedKey;
-import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.*;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -11,11 +9,13 @@ import org.bukkit.boss.BossBar;
 import org.bukkit.entity.*;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.metadata.FixedMetadataValue;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
+import org.bukkit.NamespacedKey;
 
 import java.util.*;
 
@@ -38,10 +38,9 @@ public class EagleBoss {
     private static final double BLEED_VANILLA = 3.0 / 5.0;
     private static final int    BLEED_TICKS   = 3;
 
-    // Swarm — completely independent of all other cooldowns
-    private static final int    SWARM_COOLDOWN   = 45 * 20; // 45 seconds, always
-    private static final int    SWARM_FORM_TICKS = 70;      // 3.5 seconds
-    private static final int    SWARM_HOLD_TICKS = 140;     // 7 seconds
+    private static final int    SWARM_COOLDOWN   = 45 * 20;
+    private static final int    SWARM_FORM_TICKS = 70;
+    private static final int    SWARM_HOLD_TICKS = 140;
     private static final double SWARM_RADIUS     = 10.0;
     private static final double TORNADO_HEIGHT   = 20.0;
 
@@ -59,151 +58,116 @@ public class EagleBoss {
 
     private int ticksUntilWindBurst;
     private int ticksUntilSlicer;
-
-    // Swarm timer is completely separate — never reset by phase changes
-    private int swarmTimer = SWARM_COOLDOWN;
-    // If swarm fires while boss is busy, queue it
+    private int swarmTimer    = SWARM_COOLDOWN;
     private boolean swarmQueued = false;
+    private int idleTicks     = 0;
 
-    private int idleTicks = 0;
-
+    // ── Normal spawn constructor ──────────────────────────────────────────────
     public EagleBoss(CustomItemsPlugin plugin, Location spawnLoc) {
         this.plugin = plugin;
-
         bossBar = Bukkit.createBossBar(
-            "\u00a76\u00a7lEagle's Baby",
-            BarColor.YELLOW,
-            BarStyle.SEGMENTED_10
-        );
-
+            "\u00a76\u00a7lEagle's Baby", BarColor.YELLOW, BarStyle.SEGMENTED_10);
         this.phantom = spawnPhantom(spawnLoc);
         resetAttackCooldowns();
         startTasks();
-
         broadcastNearby(spawnLoc, 150,
             "\u00a74\u00a7l\u26a0 \u00a7e\u00a7lEagle's Baby \u00a74\u00a7lhas descended! \u26a0");
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_PHANTOM_AMBIENT, 2f, 2f);
         spawnLoc.getWorld().playSound(spawnLoc, Sound.ENTITY_WITHER_SPAWN, 1f, 1.8f);
     }
-    // Used on server restart to reattach behavior to a surviving phantom
-public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
-    this.plugin = plugin;
 
-    bossBar = Bukkit.createBossBar(
-        "\u00a76\u00a7lEagle's Baby",
-        BarColor.YELLOW,
-        BarStyle.SEGMENTED_10
-    );
+    // ── Reattach constructor (server restart) ─────────────────────────────────
+    public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
+        this.plugin = plugin;
+        bossBar = Bukkit.createBossBar(
+            "\u00a76\u00a7lEagle's Baby", BarColor.YELLOW, BarStyle.SEGMENTED_10);
+        this.phantom = existing;
 
-    this.phantom = existing;
+        existing.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
+        existing.setAI(false);
+        existing.setGravity(false);
+        existing.setRemoveWhenFarAway(false);
+        existing.setCustomName("\u00a76\u00a7lEagle's Baby");
+        existing.setCustomNameVisible(true);
 
-    // Re-apply non-persistent settings lost on restart
-    existing.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
-    existing.setAI(false);
-    existing.setGravity(false);
-    existing.setRemoveWhenFarAway(false);
-    existing.setCustomName("\u00a76\u00a7lEagle's Baby");
-    existing.setCustomNameVisible(true);
+        if (!existing.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
+            existing.addPotionEffect(new PotionEffect(
+                PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+        }
 
-    if (!existing.hasPotionEffect(PotionEffectType.FIRE_RESISTANCE)) {
-        existing.addPotionEffect(new PotionEffect(
-            PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+        double pct = existing.getHealth() / MAX_HP;
+        phase = pct > 0.5 ? 1 : pct > 0.05 ? 2 : 3;
+
+        alive = true;
+        resetAttackCooldowns();
+        startTasks();
+
+        Bukkit.broadcastMessage(
+            "\u00a74\u00a7l[!] \u00a7e\u00a7lEagle's Baby \u00a74\u00a7lhas been reloaded from world data!");
     }
 
-    // Determine phase from current HP
-    double pct = existing.getHealth() / MAX_HP;
-    phase = pct > 0.5 ? 1 : pct > 0.05 ? 2 : 3;
-
-    alive = true;
-    resetAttackCooldowns();
-    startTasks();
-
-    Bukkit.broadcastMessage(
-        "\u00a74\u00a7l[!] \u00a7e\u00a7lEagle's Baby \u00a74\u00a7lhas been reloaded from world data!");
-}
-
     // ── Spawn ─────────────────────────────────────────────────────────────────
-  private Phantom spawnPhantom(Location loc) {
-    Phantom p = (Phantom) loc.getWorld().spawnEntity(loc, EntityType.PHANTOM);
-    p.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
-    // PDC persists across restarts — metadata does not
-    p.getPersistentDataContainer().set(
-        new NamespacedKey(plugin, "eagle_boss"),
-        PersistentDataType.BYTE, (byte) 1);
-    p.setCustomName("\u00a76\u00a7lEagle's Baby");
-    p.setCustomNameVisible(true);
-    p.setAI(false);
-    p.setGravity(false);
-    p.setRemoveWhenFarAway(false);
-    p.setSize(4);
+    private Phantom spawnPhantom(Location loc) {
+        Phantom p = (Phantom) loc.getWorld().spawnEntity(loc, EntityType.PHANTOM);
+        p.setMetadata(META_EAGLE_BOSS, new FixedMetadataValue(plugin, true));
+        p.getPersistentDataContainer().set(
+            new NamespacedKey(plugin, "eagle_boss"),
+            PersistentDataType.BYTE, (byte) 1);
+        p.setCustomName("\u00a76\u00a7lEagle's Baby");
+        p.setCustomNameVisible(true);
+        p.setAI(false);
+        p.setGravity(false);
+        p.setRemoveWhenFarAway(false);
+        p.setSize(4);
 
-    AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
-    if (maxHp != null) maxHp.setBaseValue(MAX_HP);
-    p.setHealth(MAX_HP);
+        AttributeInstance maxHp = p.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        if (maxHp != null) maxHp.setBaseValue(MAX_HP);
+        p.setHealth(MAX_HP);
 
-    p.addPotionEffect(new PotionEffect(
-        PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
+        p.addPotionEffect(new PotionEffect(
+            PotionEffectType.FIRE_RESISTANCE, Integer.MAX_VALUE, 255, false, false));
 
-    alive = true;
-    return p;
-}
+        alive = true;
+        return p;
+    }
 
-    // ── Attack cooldowns (NOT swarm — swarm is independent) ───────────────────
+    // ── Cooldown reset (never touches swarm timer) ────────────────────────────
     private void resetAttackCooldowns() {
         double mult = (phase >= 2) ? 0.25 : 0.5;
-        ticksUntilWindBurst = (int)(((3  + random.nextInt(8)) * 20) * mult);
-        ticksUntilSlicer    = (int)(((15 + random.nextInt(6)) * 20) * mult);
-        // swarmTimer is NEVER touched here
+        ticksUntilWindBurst = (int)(((3  + random.nextInt(8))  * 20) * mult);
+        ticksUntilSlicer    = (int)(((15 + random.nextInt(6))  * 20) * mult);
     }
 
     // ── Tasks ─────────────────────────────────────────────────────────────────
     private void startTasks() {
         // Main AI task
-        BukkitTask main = new BukkitRunnable() {
+        tasks.add(new BukkitRunnable() {
             @Override
             public void run() {
-                if (!alive || phantom == null || phantom.isDead()) {
-                    cancel();
-                    return;
-                }
+                if (!alive || phantom == null || phantom.isDead()) { cancel(); return; }
                 phantom.setFireTicks(0);
                 phantom.setVisualFire(false);
-
                 checkPhaseTransition();
                 updateBossBar();
                 updateBossBarPlayers();
-
                 if (state == State.IDLE) mainTick();
             }
-        }.runTaskTimer(plugin, 1L, 1L);
-        tasks.add(main);
+        }.runTaskTimer(plugin, 1L, 1L));
 
-        // Completely separate swarm timer task — runs independently forever
-        // Never affected by state, phase, or any other cooldown reset
-        BukkitTask swarmTask = new BukkitRunnable() {
+        // Completely independent swarm timer — never affected by anything else
+        tasks.add(new BukkitRunnable() {
             @Override
             public void run() {
-                if (!alive || phantom == null || phantom.isDead()) {
-                    cancel();
-                    return;
-                }
-                if (swarmTimer > 0) {
-                    swarmTimer--;
-                    return;
-                }
-                // Reset immediately so next countdown starts now
+                if (!alive || phantom == null || phantom.isDead()) { cancel(); return; }
+                if (swarmTimer > 0) { swarmTimer--; return; }
                 swarmTimer = SWARM_COOLDOWN;
-
                 if (state == State.IDLE) {
-                    // Fire immediately
                     performSwarm();
                 } else {
-                    // Queue — will fire as soon as boss returns to IDLE
                     swarmQueued = true;
                 }
             }
-        }.runTaskTimer(plugin, 1L, 1L);
-        tasks.add(swarmTask);
+        }.runTaskTimer(plugin, 1L, 1L));
     }
 
     // ── Phase transitions ─────────────────────────────────────────────────────
@@ -224,7 +188,6 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         broadcastNearby(loc, 150, msg);
         loc.getWorld().playSound(loc, Sound.ENTITY_PHANTOM_HURT, 2f, 0.5f);
         loc.getWorld().strikeLightningEffect(loc);
-        // Only reset attack cooldowns — swarm is untouched
         resetAttackCooldowns();
         if (phase == 3) ticksUntilSlicer = 0;
     }
@@ -235,8 +198,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         double progress = Math.max(0.0, Math.min(1.0, hp / MAX_HP));
         bossBar.setProgress(progress);
         bossBar.setTitle(String.format(
-            "\u00a76\u00a7lEagle's Baby \u00a7e%.0f\u00a77/\u00a7e%.0f HP",
-            hp, MAX_HP));
+            "\u00a76\u00a7lEagle's Baby \u00a7e%.0f\u00a77/\u00a7e%.0f HP", hp, MAX_HP));
         if (progress > 0.5)       bossBar.setColor(BarColor.YELLOW);
         else if (progress > 0.05) bossBar.setColor(BarColor.RED);
         else                      bossBar.setColor(BarColor.PURPLE);
@@ -251,12 +213,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
 
     // ── Main tick ─────────────────────────────────────────────────────────────
     private void mainTick() {
-        // Check queued swarm first
-        if (swarmQueued) {
-            swarmQueued = false;
-            performSwarm();
-            return;
-        }
+        if (swarmQueued) { swarmQueued = false; performSwarm(); return; }
 
         Player target = getNearestPlayer(300);
         if (target == null) return;
@@ -305,7 +262,9 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+                if (!alive || phantom.isDead())  { state = State.IDLE; cancel(); return; }
+                if (!target.isOnline())          { state = State.IDLE; cancel(); return; }
+
                 Location cur  = phantom.getLocation();
                 Location dest = target.getLocation().clone().add(0, CHARGE_HEIGHT, 0);
                 if (cur.distance(dest) < 3.0) { cancel(); startTalonDive(target); return; }
@@ -315,7 +274,8 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
                 double dz = clamp((dest.getZ() - cur.getZ()) * 0.15, ASCEND_SPEED * 1.5);
                 movePhantom(cur, dx, dy, dz, target.getLocation());
                 if (random.nextInt(3) == 0)
-                    phantom.getWorld().spawnParticle(Particle.CLOUD, cur, 2, 0.3, 0.3, 0.3, 0.02);
+                    phantom.getWorld().spawnParticle(Particle.CLOUD,
+                        cur, 2, 0.3, 0.3, 0.3, 0.02);
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
@@ -324,7 +284,8 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
     private void startTalonDive(final Player target) {
         state = State.DIVING;
         broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7l\u25bc DIVING! \u25bc");
-        phantom.getWorld().playSound(phantom.getLocation(), Sound.ENTITY_PHANTOM_FLAP, 2f, 0.5f);
+        phantom.getWorld().playSound(phantom.getLocation(),
+            Sound.ENTITY_PHANTOM_FLAP, 2f, 0.5f);
 
         new BukkitRunnable() {
             int     ticksFall = 0;
@@ -333,7 +294,9 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
 
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+                if (!alive || phantom.isDead())  { state = State.IDLE; cancel(); return; }
+                if (!target.isOnline())          { state = State.IDLE; cancel(); return; }
+
                 ticksFall++;
                 speed = Math.min(DIVE_MAX, speed + DIVE_ACCEL);
                 Location cur    = phantom.getLocation();
@@ -360,20 +323,23 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
                 phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
                     cur, (int)(speed * 3), 0.3, 0.3, 0.3, 0);
                 if (speed > 1.0)
-                    phantom.getWorld().spawnParticle(Particle.CLOUD, cur, 2, 0.2, 0.2, 0.2, 0.05);
+                    phantom.getWorld().spawnParticle(Particle.CLOUD,
+                        cur, 2, 0.2, 0.2, 0.2, 0.05);
                 if (ticksFall > 400) { cancel(); smoothAscend(); }
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // ── Wind Burst — 10 rounds, 3 feathers per round ─────────────────────────
+    // ── Wind Burst — 10 rounds of 3 feathers each ────────────────────────────
     private void performWindBurst(final Player target) {
         state = State.WIND_BURST;
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+                if (!alive || phantom.isDead())  { state = State.IDLE; cancel(); return; }
+                if (!target.isOnline())          { state = State.IDLE; cancel(); return; }
+
                 Location cur  = phantom.getLocation();
                 Location dest = target.getLocation().clone().add(0, 15, 0);
                 if (cur.distance(dest) < 4.0) { cancel(); startFeatherRounds(target); return; }
@@ -388,7 +354,8 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
 
     private void startFeatherRounds(final Player target) {
         broadcastNearby(phantom.getLocation(), 150, "\u00a75\u00a7l\u2604 WIND BURST! \u2604");
-        phantom.getWorld().playSound(phantom.getLocation(), Sound.ENTITY_PHANTOM_FLAP, 2f, 2f);
+        phantom.getWorld().playSound(phantom.getLocation(),
+            Sound.ENTITY_PHANTOM_FLAP, 2f, 2f);
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_ELDER_GUARDIAN_CURSE, 1f, 1.5f);
 
@@ -396,8 +363,9 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
             int round = 0;
             @Override
             public void run() {
-                if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
-                if (round >= 10)               { state = State.IDLE; cancel(); return; }
+                if (!alive || phantom.isDead())  { state = State.IDLE; cancel(); return; }
+                if (!target.isOnline())          { state = State.IDLE; cancel(); return; }
+                if (round >= 10)                 { state = State.IDLE; cancel(); return; }
 
                 Location from = phantom.getLocation().clone().add(0, 1, 0);
                 for (int i = 0; i < 3; i++) {
@@ -420,12 +388,14 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
                         new FixedMetadataValue(plugin, true));
                     trackFeather(feather);
                 }
-                phantom.getWorld().spawnParticle(Particle.CLOUD, from, 5, 0.3, 0.3, 0.3, 0.03);
+                phantom.getWorld().spawnParticle(Particle.CLOUD,
+                    from, 5, 0.3, 0.3, 0.3, 0.03);
                 round++;
             }
         }.runTaskTimer(plugin, 0L, 6L);
     }
 
+    // Feather hit — 5 display HP + bleeding
     private void trackFeather(final Item feather) {
         new BukkitRunnable() {
             int ticks = 0;
@@ -438,7 +408,8 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
                 for (Entity e : feather.getNearbyEntities(1.0, 1.0, 1.0)) {
                     if (e instanceof Player p && !p.isDead()) {
                         p.damage(1.0, phantom);
-                        p.sendMessage("\u00a7c\u00a7lFeather hit! \u00a7c\u2639 You are bleeding!");
+                        p.sendMessage(
+                            "\u00a7c\u00a7lFeather hit! \u00a7c\u2639 You are bleeding!");
                         feather.getWorld().spawnParticle(Particle.CRIT,
                             feather.getLocation(), 5, 0.1, 0.1, 0.1, 0.05);
                         feather.getWorld().spawnParticle(Particle.BLOCK_CRACK,
@@ -453,6 +424,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         }.runTaskTimer(plugin, 1L, 1L);
     }
 
+    // Bleeding — 3 display HP per second for 3 seconds
     private void applyBleeding(final Player player) {
         new BukkitRunnable() {
             int seconds = 0;
@@ -479,20 +451,17 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_ENDER_DRAGON_FLAP, 2f, 0.6f);
 
-        final Location center = phantom.getLocation().clone();
+        final Location center  = phantom.getLocation().clone();
+        final double   groundY = getGroundY(center);
 
-        // Find the ground directly below the spawn point
-        final double groundY = getGroundY(center);
-
-        // Phase 1: spin for 3.5s forming tornado
+        // Phase 1: spin 3.5s forming tornado
         new BukkitRunnable() {
             int    tick  = 0;
             double angle = 0;
-
             @Override
             public void run() {
                 if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
-                if (tick >= SWARM_FORM_TICKS) { cancel(); holdTornado(center, groundY); return; }
+                if (tick >= SWARM_FORM_TICKS)   { cancel(); holdTornado(center, groundY); return; }
 
                 double progress = (double) tick / SWARM_FORM_TICKS;
                 double radius   = 4.0 - (3.0 * progress);
@@ -505,52 +474,51 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
 
                 spawnTornadoParticles(center, groundY, progress);
 
-                if (tick % 10 == 0) {
+                if (tick % 10 == 0)
                     center.getWorld().playSound(center,
                         Sound.ENTITY_PHANTOM_FLAP, 1.5f, 0.5f + (float) progress);
-                }
                 tick++;
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
+    // Phase 2: hold tornado 7s, pull entities
     private void holdTornado(final Location center, final double groundY) {
         broadcastNearby(center, 150, "\u00a7b\u00a7l\u2605 TORNADO ACTIVE! \u2605");
-        center.getWorld().playSound(center, Sound.ENTITY_ENDER_DRAGON_GROWL, 2f, 1.2f);
+        center.getWorld().playSound(center,
+            Sound.ENTITY_ENDER_DRAGON_GROWL, 2f, 1.2f);
 
         new BukkitRunnable() {
             int tick = 0;
             @Override
             public void run() {
                 if (!alive || phantom.isDead()) { endTornado(center); cancel(); return; }
-                if (tick >= SWARM_HOLD_TICKS)  { cancel(); endTornado(center); return; }
+                if (tick >= SWARM_HOLD_TICKS)   { cancel(); endTornado(center); return; }
 
                 phantom.teleport(center.clone().add(0, 2, 0));
                 spawnTornadoParticles(center, groundY, 1.0);
 
-                // Strong pull toward center
                 for (Entity e : center.getWorld().getNearbyEntities(
                         center, SWARM_RADIUS, SWARM_RADIUS + 10, SWARM_RADIUS)) {
                     if (e.equals(phantom)) continue;
                     if (e instanceof LivingEntity) {
                         Vector pull = center.toVector()
                                 .subtract(e.getLocation().toVector())
-                                .normalize()
-                                .multiply(0.7);
+                                .normalize().multiply(0.7);
                         pull.setY(0.15);
                         e.setVelocity(pull);
                     }
                 }
 
-                if (tick % 15 == 0) {
+                if (tick % 15 == 0)
                     center.getWorld().playSound(center,
                         Sound.ENTITY_ENDER_DRAGON_FLAP, 1.5f, 1.5f);
-                }
                 tick++;
             }
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
+    // Phase 3: tornado ends, apply debuffs
     private void endTornado(final Location center) {
         broadcastNearby(center, 150,
             "\u00a77\u00a7lThe tornado dissipates... \u00a7c\u00a7lYou feel weakened!");
@@ -561,8 +529,10 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         for (Entity e : center.getWorld().getNearbyEntities(
                 center, SWARM_RADIUS, SWARM_RADIUS, SWARM_RADIUS)) {
             if (!(e instanceof Player p)) continue;
-            p.addPotionEffect(new PotionEffect(PotionEffectType.SLOW,     20 * 20, 1, false, true, true));
-            p.addPotionEffect(new PotionEffect(PotionEffectType.WEAKNESS, 20 * 20, 1, false, true, true));
+            p.addPotionEffect(new PotionEffect(
+                PotionEffectType.SLOW, 20 * 20, 1, false, true, true));
+            p.addPotionEffect(new PotionEffect(
+                PotionEffectType.WEAKNESS, 20 * 20, 1, false, true, true));
             p.sendMessage(
                 "\u00a7c\u00a7lThe tornado left you \u00a7cslowed "
                 + "\u00a7c\u00a7land \u00a7cweak \u00a7c\u00a7lfor 20 seconds!");
@@ -570,7 +540,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
         state = State.IDLE;
     }
 
-    // Tornado particles — starts from groundY, reaches groundY + TORNADO_HEIGHT
+    // Tornado particles — from ground up 20 blocks, narrow at bottom wide at top
     private void spawnTornadoParticles(Location center, double groundY, double intensity) {
         int    layers        = 24;
         int    pointsPerRing = 18;
@@ -578,15 +548,12 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
 
         for (int layer = 0; layer < layers; layer++) {
             double heightFraction = (double) layer / layers;
-            // Starts at ground, goes up TORNADO_HEIGHT blocks
             double y = groundY + heightFraction * TORNADO_HEIGHT;
-            // Narrow at bottom (1 block), wide at top (8 blocks)
             double r = intensity * (1.0 + heightFraction * 7.0);
 
             for (int i = 0; i < pointsPerRing; i++) {
                 double a = (Math.PI * 2.0 / pointsPerRing) * i
-                         + (heightFraction * 6.0)
-                         + timeOffset;
+                         + (heightFraction * 6.0) + timeOffset;
                 Location ring = new Location(center.getWorld(),
                     center.getX() + Math.cos(a) * r,
                     y,
@@ -596,27 +563,22 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
                     ring, 1, 0.04, 0.08, 0.04, 0.04);
                 center.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
                     ring, 1, 0, 0, 0, 0);
-
-                if (intensity > 0.3 && layer % 2 == 0) {
+                if (intensity > 0.3 && layer % 2 == 0)
                     center.getWorld().spawnParticle(Particle.SMOKE_NORMAL,
                         ring, 1, 0.08, 0.08, 0.08, 0.02);
-                }
-                if (intensity > 0.6 && layer % 3 == 0) {
+                if (intensity > 0.6 && layer % 3 == 0)
                     center.getWorld().spawnParticle(Particle.CRIT,
                         ring, 1, 0.05, 0.05, 0.05, 0.01);
-                }
             }
         }
     }
 
-    // Find the highest solid block directly below a location
+    // Find highest solid block below location
     private double getGroundY(Location loc) {
         int x = loc.getBlockX();
         int z = loc.getBlockZ();
         for (int y = (int) loc.getY(); y > loc.getWorld().getMinHeight(); y--) {
-            if (loc.getWorld().getBlockAt(x, y, z).getType().isSolid()) {
-                return y + 1.0;
-            }
+            if (loc.getWorld().getBlockAt(x, y, z).getType().isSolid()) return y + 1.0;
         }
         return loc.getWorld().getMinHeight();
     }
@@ -624,6 +586,8 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
     // ── Slicer ────────────────────────────────────────────────────────────────
     private void performSlicer(final Player target) {
         state = State.SLICER;
+        if (!target.isOnline()) { state = State.IDLE; return; }
+
         broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7l\u2620 SLICER! \u2620");
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_BITE, 2f, 0.6f);
@@ -636,11 +600,14 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
     }
 
     private void executeSlashChain(Player target, boolean[] fronts, int index) {
+        if (!target.isOnline()) { state = State.IDLE; return; }
+
         if (index >= fronts.length) {
             if (phase == 3) {
                 new BukkitRunnable() {
                     @Override public void run() {
                         if (!alive || phantom.isDead()) { state = State.IDLE; return; }
+                        if (!target.isOnline())         { state = State.IDLE; return; }
                         performSlicer(target);
                     }
                 }.runTaskLater(plugin, 8L);
@@ -659,6 +626,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
             new BukkitRunnable() {
                 @Override public void run() {
                     if (!alive || phantom.isDead()) { state = State.IDLE; return; }
+                    if (!target.isOnline())         { state = State.IDLE; return; }
                     executeSlashChain(target, fronts, index + 1);
                 }
             }.runTaskLater(plugin, phase == 3 ? 3L : 5L)
@@ -671,7 +639,9 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
             @Override
             public void run() {
                 if (!alive || phantom.isDead()) { state = State.IDLE; cancel(); return; }
+                if (!target.isOnline())         { state = State.IDLE; cancel(); return; }
                 timeout++;
+
                 Location tLoc = target.getLocation();
                 Vector dir = tLoc.getDirection().clone().normalize();
                 if (dir.length() < 0.01) dir = new Vector(1, 0, 0);
@@ -695,7 +665,7 @@ public EagleBoss(CustomItemsPlugin plugin, Phantom existing) {
     }
 
     private void doSlash(Player target) {
-        if (!alive || phantom.isDead()) return;
+        if (!alive || phantom.isDead() || !target.isOnline()) return;
         if (phantom.getLocation().distance(target.getLocation()) < 5.0) {
             double displayDmg = phase == 3 ? 40.0 : 30.0;
             target.damage(displayDmg / 5.0, phantom);

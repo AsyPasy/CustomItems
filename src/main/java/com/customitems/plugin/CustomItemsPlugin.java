@@ -1,6 +1,12 @@
 package com.customitems.plugin;
 
+import org.bukkit.NamespacedKey;
+import org.bukkit.World;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Phantom;
 import org.bukkit.entity.Player;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class CustomItemsPlugin extends JavaPlugin {
@@ -14,6 +20,10 @@ public class CustomItemsPlugin extends JavaPlugin {
         eagleBossListener = new EagleBossListener(this);
         getServer().getPluginManager().registerEvents(itemListener,      this);
         getServer().getPluginManager().registerEvents(eagleBossListener, this);
+
+        // Scan all worlds for surviving eagle boss phantoms from before restart
+        reattachSurvivingBosses();
+
         getLogger().info("CustomItems enabled!");
     }
 
@@ -23,6 +33,33 @@ public class CustomItemsPlugin extends JavaPlugin {
         EaglesEyeBow.cleanup();
         eagleBossListener.cleanup();
         getLogger().info("CustomItems disabled!");
+    }
+
+    // Scan every loaded chunk in every world for phantoms marked with PDC
+    private void reattachSurvivingBosses() {
+        NamespacedKey key = new NamespacedKey(this, "eagle_boss");
+        int count = 0;
+
+        for (World world : getServer().getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity.getType() != EntityType.PHANTOM) continue;
+                Phantom phantom = (Phantom) entity;
+
+                // Check PDC — this survives restarts unlike metadata
+                if (!phantom.getPersistentDataContainer()
+                        .has(key, PersistentDataType.BYTE)) continue;
+
+                // Re-attach full boss behavior to this phantom
+                EagleBoss boss = new EagleBoss(this, phantom);
+                eagleBossListener.registerBoss(boss);
+                count++;
+                getLogger().info("Reattached Eagle's Baby boss: " + phantom.getUniqueId());
+            }
+        }
+
+        if (count > 0) {
+            getLogger().info("Reattached " + count + " Eagle's Baby boss(es) from world data.");
+        }
     }
 
     @Override
@@ -46,9 +83,8 @@ public class CustomItemsPlugin extends JavaPlugin {
                 yield true;
             }
             case "eagleboss" -> {
-                // Removed permission check — op can always run it
                 eagleBossListener.spawnBoss(player.getLocation().add(0, 5, 0));
-                player.sendMessage("\u00a76Eagle's Baby Boss spawned!");
+                player.sendMessage("\u00a76Eagle's Baby spawned!");
                 yield true;
             }
             default -> false;

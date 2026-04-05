@@ -1,6 +1,7 @@
 package com.customitems.plugin;
 
 import org.bukkit.*;
+import org.bukkit.block.Biome;
 import org.bukkit.block.Block;
 import org.bukkit.entity.*;
 import org.bukkit.event.*;
@@ -55,12 +56,10 @@ public class EagleBossListener implements Listener {
     }
 
     // ── Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks ─
-    // Uses isNewChunk() so the roll only fires the very first time a chunk is
-    // generated — never again on subsequent loads or server restarts.
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
-        if (!event.isNewChunk()) return;      // only brand-new terrain
-        if (random.nextInt(300) != 0) return; // 1/300 chance
+        if (!event.isNewChunk()) return;
+        if (random.nextInt(300) != 0) return;
 
         Chunk chunk = event.getChunk();
         if (!isMountainChunk(chunk)) return;
@@ -68,7 +67,7 @@ public class EagleBossListener implements Listener {
         Location loc = findSurfaceLocation(chunk);
         if (loc == null) return;
 
-        int eggCount = 1 + random.nextInt(4); // 1–4 turtle eggs
+        int eggCount = 1 + random.nextInt(4);
         EagleNest.build(loc, eggCount);
     }
 
@@ -79,12 +78,10 @@ public class EagleBossListener implements Listener {
         if (block.getType() != Material.TURTLE_EGG) return;
         if (!EagleNest.isNestEgg(block.getLocation())) return;
 
-        // Always remove from tracking — once broken it's gone
         EagleNest.removeNestEgg(block.getLocation());
 
         if (random.nextInt(50) == 0) {
             Location bLoc = block.getLocation();
-            // Warn all nearby players
             for (Player nearby : block.getWorld().getPlayers()) {
                 if (nearby.getLocation().distanceSquared(bLoc) <= 150 * 150) {
                     nearby.sendMessage(
@@ -97,7 +94,6 @@ public class EagleBossListener implements Listener {
                 Particle.EXPLOSION_LARGE, bLoc.clone().add(0, 1, 0),
                 5, 0.5, 0.5, 0.5, 0);
 
-            // Short delay so the break animation finishes before the boss appears
             Location spawnLoc = bLoc.clone().add(0, 5, 0);
             plugin.getServer().getScheduler().runTaskLater(plugin,
                 () -> spawnBoss(spawnLoc), 5L);
@@ -156,7 +152,6 @@ public class EagleBossListener implements Listener {
         World world = chunk.getWorld();
         int   baseX = chunk.getX() * 16;
         int   baseZ = chunk.getZ() * 16;
-        // Sample a 3×3 grid at mid-elevation
         for (int dx = 4; dx <= 12; dx += 4) {
             for (int dz = 4; dz <= 12; dz += 4) {
                 if (MOUNTAIN_BIOMES.contains(world.getBiome(baseX + dx, 128, baseZ + dz))) {
@@ -173,22 +168,17 @@ public class EagleBossListener implements Listener {
         int   baseX = chunk.getX() * 16;
         int   baseZ = chunk.getZ() * 16;
 
-        // 3-block inset from chunk edges so the 5×5 nest footprint stays
-        // mostly within this chunk and away from undefined-neighbour edges.
-        int lx = 3 + random.nextInt(10); // 3–12
+        int lx = 3 + random.nextInt(10);
         int lz = 3 + random.nextInt(10);
         int x  = baseX + lx;
         int z  = baseZ + lz;
 
-        // getHighestBlockYAt → y of highest non-air block (surface)
         int   y       = world.getHighestBlockYAt(x, z);
         Block surface = world.getBlockAt(x, y, z);
 
-        // Reject liquids (not solid), very low positions, and true-air results
         if (!surface.getType().isSolid()) return null;
         if (y < 60)                       return null;
 
-        // Return the first open block ON TOP of the surface
         return new Location(world, x, y + 1, z);
     }
 }

@@ -1,25 +1,41 @@
 package com.customitems.plugin;
 
 import org.bukkit.*;
+import org.bukkit.block.Block;
 import org.bukkit.entity.*;
 import org.bukkit.event.*;
+import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.entity.*;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.world.ChunkLoadEvent;
 
 import java.util.*;
 
 public class EagleBossListener implements Listener {
 
-    private final CustomItemsPlugin plugin;
+    private final CustomItemsPlugin    plugin;
     private final Map<UUID, EagleBoss> activeBosses   = new HashMap<>();
-    private final Set<UUID>            spawnCooldowns = new HashSet<>();
-    private final Random random = new Random();
+    private final Set<UUID>            spawnCooldowns  = new HashSet<>();
+    private final Random               random          = new Random();
+
+    // ── Mountain biomes — eagle nests generate here ───────────────────────────
+    private static final Set<Biome> MOUNTAIN_BIOMES = Set.of(
+        Biome.MEADOW,
+        Biome.GROVE,
+        Biome.SNOWY_SLOPES,
+        Biome.FROZEN_PEAKS,
+        Biome.JAGGED_PEAKS,
+        Biome.STONY_PEAKS,
+        Biome.WINDSWEPT_HILLS,
+        Biome.WINDSWEPT_GRAVELLY_HILLS,
+        Biome.WINDSWEPT_FOREST
+    );
 
     public EagleBossListener(CustomItemsPlugin plugin) {
         this.plugin = plugin;
     }
 
-    // ── Natural spawn: 1/2000 above Y 150 ────────────────────────────────────
+    // ── Natural boss spawn: 1/2000 chance above Y 150 ────────────────────────
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
@@ -38,17 +54,66 @@ public class EagleBossListener implements Listener {
         }
     }
 
-    // ── Manual spawn ──────────────────────────────────────────────────────────
+    // ── Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks ─
+    // Uses isNewChunk() so the roll only fires the very first time a chunk is
+    // generated — never again on subsequent loads or server restarts.
+    @EventHandler
+    public void onChunkLoad(ChunkLoadEvent event) {
+        if (!event.isNewChunk()) return;      // only brand-new terrain
+        if (random.nextInt(300) != 0) return; // 1/300 chance
+
+        Chunk chunk = event.getChunk();
+        if (!isMountainChunk(chunk)) return;
+
+        Location loc = findSurfaceLocation(chunk);
+        if (loc == null) return;
+
+        int eggCount = 1 + random.nextInt(4); // 1–4 turtle eggs
+        EagleNest.build(loc, eggCount);
+    }
+
+    // ── Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss ──────
+    @EventHandler(priority = EventPriority.HIGH)
+    public void onNestEggBreak(BlockBreakEvent event) {
+        Block block = event.getBlock();
+        if (block.getType() != Material.TURTLE_EGG) return;
+        if (!EagleNest.isNestEgg(block.getLocation())) return;
+
+        // Always remove from tracking — once broken it's gone
+        EagleNest.removeNestEgg(block.getLocation());
+
+        if (random.nextInt(50) == 0) {
+            Location bLoc = block.getLocation();
+            // Warn all nearby players
+            for (Player nearby : block.getWorld().getPlayers()) {
+                if (nearby.getLocation().distanceSquared(bLoc) <= 150 * 150) {
+                    nearby.sendMessage(
+                        "\u00a74\u00a7l\u26a0 \u00a7e\u00a7lSomething hatches from the eagle nest\u2026 \u00a74\u00a7l\u26a0");
+                }
+            }
+            block.getWorld().playSound(bLoc, Sound.ENTITY_WITHER_SPAWN, 1f, 1.8f);
+            block.getWorld().strikeLightningEffect(bLoc);
+            block.getWorld().spawnParticle(
+                Particle.EXPLOSION_LARGE, bLoc.clone().add(0, 1, 0),
+                5, 0.5, 0.5, 0.5, 0);
+
+            // Short delay so the break animation finishes before the boss appears
+            Location spawnLoc = bLoc.clone().add(0, 5, 0);
+            plugin.getServer().getScheduler().runTaskLater(plugin,
+                () -> spawnBoss(spawnLoc), 5L);
+        }
+    }
+
+    // ── Manual spawn (command) ────────────────────────────────────────────────
     public void spawnBoss(Location loc) {
         EagleBoss boss = new EagleBoss(plugin, loc);
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Register existing boss (used on server restart reattach) ─────────────
+    // ── Register existing boss (server restart reattach) ──────────────────────
     public void registerBoss(EagleBoss boss) {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
-
 
     // ── Feather hits block — remove it ────────────────────────────────────────
     @EventHandler
@@ -83,5 +148,47 @@ public class EagleBossListener implements Listener {
         activeBosses.values().forEach(EagleBoss::cleanup);
         activeBosses.clear();
         spawnCooldowns.clear();
+        EagleNest.clearAll();
+    }
+
+    // ── Helper: does this chunk contain at least one mountain biome sample? ───
+    private boolean isMountainChunk(Chunk chunk) {
+        World world = chunk.getWorld();
+        int   baseX = chunk.getX() * 16;
+        int   baseZ = chunk.getZ() * 16;
+        // Sample a 3×3 grid at mid-elevation
+        for (int dx = 4; dx <= 12; dx += 4) {
+            for (int dz = 4; dz <= 12; dz += 4) {
+                if (MOUNTAIN_BIOMES.contains(world.getBiome(baseX + dx, 128, baseZ + dz))) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // ── Helper: find a valid surface location inside the chunk ────────────────
+    private Location findSurfaceLocation(Chunk chunk) {
+        World world = chunk.getWorld();
+        int   baseX = chunk.getX() * 16;
+        int   baseZ = chunk.getZ() * 16;
+
+        // 3-block inset from chunk edges so the 5×5 nest footprint stays
+        // mostly within this chunk and away from undefined-neighbour edges.
+        int lx = 3 + random.nextInt(10); // 3–12
+        int lz = 3 + random.nextInt(10);
+        int x  = baseX + lx;
+        int z  = baseZ + lz;
+
+        // getHighestBlockYAt → y of highest non-air block (surface)
+        int   y       = world.getHighestBlockYAt(x, z);
+        Block surface = world.getBlockAt(x, y, z);
+
+        // Reject liquids (not solid), very low positions, and true-air results
+        if (!surface.getType().isSolid()) return null;
+        if (y < 60)                       return null;
+
+        // Return the first open block ON TOP of the surface
+        return new Location(world, x, y + 1, z);
     }
 }

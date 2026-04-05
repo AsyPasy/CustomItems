@@ -28,8 +28,9 @@ public class EaglesEyeBow {
     private static final double BASE_GAZE_MID   = 50.0;
     private static final double BASE_GAZE_MAX   = 72.0;
 
-    // +0.2 display HP per Power level, applied to each tier
-    private static final double POWER_BONUS     = 0.2;
+    // +1.0 display HP per Power level, applied to each tier
+    // Power 0 → +0 HP  |  Power 5 → +5 HP (e.g. min damage 14→19 at Power V)
+    private static final double POWER_BONUS     = 1.0;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
     private static final long MARK_DURATION_MS = 10 * 1000L;

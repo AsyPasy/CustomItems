@@ -8,6 +8,8 @@ import org.bukkit.entity.Phantom;
 import org.bukkit.entity.Player;
 import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
+import java.util.Comparator;
+import java.util.List;
 
 public class CustomItemsPlugin extends JavaPlugin {
 
@@ -87,6 +89,29 @@ public class CustomItemsPlugin extends JavaPlugin {
                 player.sendMessage("\u00a76Eagle's Baby spawned!");
                 yield true;
             }
+            case "locatenest" -> {
+    List<Location> nests = EagleNest.getNestLocations()
+        .stream()
+        .filter(l -> l.getWorld().equals(player.getWorld()))
+        .sorted(Comparator.comparingDouble(
+            l -> l.distanceSquared(player.getLocation())))
+        .limit(10)
+        .toList();
+
+    if (nests.isEmpty()) {
+        player.sendMessage("\u00a7cNo eagle nests discovered yet.");
+        yield true;
+    }
+    player.sendMessage("\u00a76\u00a7l=== 10 Nearest Eagle Nests ===");
+    int i = 1;
+    for (Location l : nests) {
+        double dist = player.getLocation().distance(l);
+        player.sendMessage(String.format(
+            "\u00a7e#%d \u00a7f\u00bb \u00a7aX: %d  Y: %d  Z: %d  \u00a77(%.0fm)",
+            i++, l.getBlockX(), l.getBlockY(), l.getBlockZ(), dist));
+    }
+    yield true;
+}
             default -> false;
         };
     }

@@ -14,6 +14,9 @@ commands:
   eagleboss:
     description: Spawn the Eagle's Baby Boss at your location
     default: op
+  locatenest:
+    description: Locate the 10 nearest eagle nests
+    default: op
 
 permissions:
   customitems.give:

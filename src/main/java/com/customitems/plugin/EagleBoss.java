@@ -282,7 +282,7 @@ public class EagleBoss {
 
     // ── Talon Dive — flat 40 display HP ───────────────────────────────────────
     private void startTalonDive(final Player target) {
-        state = State.DIVING
+        state = State.DIVING;
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_FLAP, 2f, 0.5f);
 

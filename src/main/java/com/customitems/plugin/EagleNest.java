@@ -21,6 +21,15 @@ public class EagleNest {
     // Key format: "worldName:bx:by:bz"
     private static final Set<String> nestEggLocations = new HashSet<>();
     private static final Random      random           = new Random();
+    private static final List<Location> nestLocations = new ArrayList<>();
+
+public static void registerNest(Location origin) {
+    nestLocations.add(origin.clone());
+}
+
+public static List<Location> getNestLocations() {
+    return nestLocations;
+}
 
     // ── Nest shape ─────────────────────────────────────────────────────────────
     // [dx, dy, dz, type]

@@ -282,8 +282,7 @@ public class EagleBoss {
 
     // ── Talon Dive — flat 40 display HP ───────────────────────────────────────
     private void startTalonDive(final Player target) {
-        state = State.DIVING;
-        broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7l\u25bc DIVING! \u25bc");
+        state = State.DIVING
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_FLAP, 2f, 0.5f);
 
@@ -306,8 +305,6 @@ public class EagleBoss {
                 if (toTarget.length() < 2.5 && !hit) {
                     hit = true;
                     target.damage(TALON_DAMAGE, phantom);
-                    target.sendMessage(
-                        "\u00a74\u00a7lEagle's talons struck you for \u00a7c40 HP\u00a74\u00a7l!");
                     phantom.getWorld().playSound(phantom.getLocation(),
                         Sound.ENTITY_PHANTOM_BITE, 2f, 0.8f);
                     phantom.getWorld().spawnParticle(Particle.CRIT,
@@ -408,8 +405,6 @@ public class EagleBoss {
                 for (Entity e : feather.getNearbyEntities(1.0, 1.0, 1.0)) {
                     if (e instanceof Player p && !p.isDead()) {
                         p.damage(1.0, phantom);
-                        p.sendMessage(
-                            "\u00a7c\u00a7lFeather hit! \u00a7c\u2639 You are bleeding!");
                         feather.getWorld().spawnParticle(Particle.CRIT,
                             feather.getLocation(), 5, 0.1, 0.1, 0.1, 0.05);
                         feather.getWorld().spawnParticle(Particle.BLOCK_CRACK,
@@ -588,7 +583,7 @@ public class EagleBoss {
         state = State.SLICER;
         if (!target.isOnline()) { state = State.IDLE; return; }
 
-        broadcastNearby(phantom.getLocation(), 100, "\u00a7c\u00a7l\u2620 SLICER! \u2620");
+        broadcastNearby(phantom.getLocation(), 50, "\u00a7c\u00a7l\u2620 SLICER! \u2620");
         phantom.getWorld().playSound(phantom.getLocation(),
             Sound.ENTITY_PHANTOM_BITE, 2f, 0.6f);
         phantom.getWorld().strikeLightningEffect(phantom.getLocation());
@@ -669,8 +664,6 @@ public class EagleBoss {
         if (phantom.getLocation().distance(target.getLocation()) < 5.0) {
             double displayDmg = phase == 3 ? 40.0 : 30.0;
             target.damage(displayDmg / 5.0, phantom);
-            target.sendMessage("\u00a7c\u00a7lSliced for \u00a74"
-                + (int) displayDmg + " HP\u00a7c\u00a7l!");
         }
         phantom.getWorld().spawnParticle(Particle.SWEEP_ATTACK,
             phantom.getLocation().clone().add(0, 1, 0), 20, 1.2, 0.5, 1.2, 0.1);

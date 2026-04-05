@@ -69,6 +69,7 @@ public class EagleBossListener implements Listener {
 
         int eggCount = 1 + random.nextInt(4);
         EagleNest.build(loc, eggCount);
+        EagleNest.registerNest(loc);
     }
 
     // ── Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss ──────

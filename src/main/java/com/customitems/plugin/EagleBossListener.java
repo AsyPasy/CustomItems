@@ -15,11 +15,11 @@ import java.util.*;
 public class EagleBossListener implements Listener {
 
     private final CustomItemsPlugin    plugin;
-    private final Map<UUID, EagleBoss> activeBosses   = new HashMap<>();
-    private final Set<UUID>            spawnCooldowns  = new HashSet<>();
-    private final Random               random          = new Random();
+    private final Map<UUID, EagleBoss> activeBosses  = new HashMap<>();
+    private final Set<UUID>            spawnCooldowns = new HashSet<>();
+    private final Random               random         = new Random();
 
-    // ── Mountain biomes — eagle nests generate here ───────────────────────────
+    // Mountain biomes - eagle nests generate here
     private static final Set<Biome> MOUNTAIN_BIOMES = Set.of(
         Biome.MEADOW,
         Biome.GROVE,
@@ -36,7 +36,7 @@ public class EagleBossListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Natural boss spawn: 1/2000 chance above Y 150 (overworld only) ────────
+    // Natural boss spawn: 1/2000 chance above Y 150 (overworld only)
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
@@ -57,7 +57,7 @@ public class EagleBossListener implements Listener {
         }
     }
 
-    // ── Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks (overworld only) ─
+    // Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks (overworld only)
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
         if (!event.isNewChunk()) return;
@@ -76,7 +76,7 @@ public class EagleBossListener implements Listener {
         EagleNest.registerNest(loc);
     }
 
-    // ── Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss (overworld only) ──
+    // Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss (overworld only)
     @EventHandler(priority = EventPriority.HIGH)
     public void onNestEggBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
@@ -107,7 +107,7 @@ public class EagleBossListener implements Listener {
         }
     }
 
-    // ── Manual spawn (command) — overworld only as a safety net ──────────────
+    // Manual spawn (command) - overworld only as a safety net
     public void spawnBoss(Location loc) {
         // Final safety net: never spawn in Nether or End regardless of call origin
         if (loc.getWorld().getEnvironment() != World.Environment.NORMAL) return;
@@ -115,12 +115,12 @@ public class EagleBossListener implements Listener {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Register existing boss (server restart reattach) ──────────────────────
+    // Register existing boss (server restart reattach)
     public void registerBoss(EagleBoss boss) {
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
 
-    // ── Feather hits block — remove it ────────────────────────────────────────
+    // Feather hits block - remove it
     @EventHandler
     public void onFeatherHitBlock(ProjectileHitEvent event) {
         if (!(event.getEntity() instanceof Arrow arrow)) return;
@@ -128,7 +128,7 @@ public class EagleBossListener implements Listener {
         if (event.getHitBlock() != null) arrow.remove();
     }
 
-    // ── Boss death — vanilla HP hits 0 ────────────────────────────────────────
+    // Boss death - vanilla HP hits 0
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBossDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Phantom phantom)) return;
@@ -148,7 +148,7 @@ public class EagleBossListener implements Listener {
             "\u00a7e\u00a7lEagle's Eyes have dropped!");
     }
 
-    // ── Cleanup ───────────────────────────────────────────────────────────────
+    // Cleanup
     public void cleanup() {
         activeBosses.values().forEach(EagleBoss::cleanup);
         activeBosses.clear();
@@ -156,7 +156,7 @@ public class EagleBossListener implements Listener {
         EagleNest.clearAll();
     }
 
-    // ── Helper: does this chunk contain at least one mountain biome sample? ───
+    // Helper: does this chunk contain at least one mountain biome sample?
     private boolean isMountainChunk(Chunk chunk) {
         World world = chunk.getWorld();
         int   baseX = chunk.getX() * 16;
@@ -171,7 +171,7 @@ public class EagleBossListener implements Listener {
         return false;
     }
 
-    // ── Helper: find a valid surface location inside the chunk ────────────────
+    // Helper: find a valid surface location inside the chunk
     private Location findSurfaceLocation(Chunk chunk) {
         World world = chunk.getWorld();
         int   baseX = chunk.getX() * 16;
@@ -190,5 +190,4 @@ public class EagleBossListener implements Listener {
 
         return new Location(world, x, y + 1, z);
     }
-}
 }

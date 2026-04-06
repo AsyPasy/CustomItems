@@ -36,10 +36,12 @@ public class EagleBossListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Natural boss spawn: 1/2000 chance above Y 150 ────────────────────────
+    // ── Natural boss spawn: 1/2000 chance above Y 150 (overworld only) ────────
     @EventHandler
     public void onPlayerMove(PlayerMoveEvent event) {
         if (event.getTo() == null) return;
+        // Block Nether and End
+        if (event.getPlayer().getWorld().getEnvironment() != World.Environment.NORMAL) return;
         if (event.getTo().getY() < 150) return;
         if (event.getFrom().getBlockY() == event.getTo().getBlockY()) return;
 
@@ -55,10 +57,12 @@ public class EagleBossListener implements Listener {
         }
     }
 
-    // ── Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks ─
+    // ── Eagle Nest chunk generation: 1/300 in freshly generated mountain chunks (overworld only) ─
     @EventHandler
     public void onChunkLoad(ChunkLoadEvent event) {
         if (!event.isNewChunk()) return;
+        // Block Nether and End
+        if (event.getChunk().getWorld().getEnvironment() != World.Environment.NORMAL) return;
         if (random.nextInt(300) != 0) return;
 
         Chunk chunk = event.getChunk();
@@ -72,11 +76,13 @@ public class EagleBossListener implements Listener {
         EagleNest.registerNest(loc);
     }
 
-    // ── Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss ──────
+    // ── Turtle egg break in a nest: 1/50 chance to hatch the Eagle Boss (overworld only) ──
     @EventHandler(priority = EventPriority.HIGH)
     public void onNestEggBreak(BlockBreakEvent event) {
         Block block = event.getBlock();
         if (block.getType() != Material.TURTLE_EGG) return;
+        // Block Nether and End
+        if (block.getWorld().getEnvironment() != World.Environment.NORMAL) return;
         if (!EagleNest.isNestEgg(block.getLocation())) return;
 
         EagleNest.removeNestEgg(block.getLocation());
@@ -101,8 +107,10 @@ public class EagleBossListener implements Listener {
         }
     }
 
-    // ── Manual spawn (command) ────────────────────────────────────────────────
+    // ── Manual spawn (command) — overworld only as a safety net ──────────────
     public void spawnBoss(Location loc) {
+        // Final safety net: never spawn in Nether or End regardless of call origin
+        if (loc.getWorld().getEnvironment() != World.Environment.NORMAL) return;
         EagleBoss boss = new EagleBoss(plugin, loc);
         activeBosses.put(boss.getPhantom().getUniqueId(), boss);
     }
@@ -182,4 +190,5 @@ public class EagleBossListener implements Listener {
 
         return new Location(world, x, y + 1, z);
     }
+}
 }

@@ -18,15 +18,11 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // Base normal damage (display HP)
     private static final double BASE_NORMAL_MIN = 5.0;
     private static final double BASE_NORMAL_MID = 11.0;
     private static final double BASE_NORMAL_MAX = 16.0;
 
-    // Power X = +X display HP per level (Power 1 → +1, Power 2 → +2, etc.)
-    private static final double POWER_BONUS = 1.0;
-
-    // Eagle's Gaze = 2× normal damage
+    private static final double POWER_BONUS     = 1.0;
     private static final double GAZE_MULTIPLIER = 2.0;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
@@ -102,17 +98,14 @@ public class EaglesEyeBow {
                 && meta.getDisplayName().equals(BOW_NAME);
     }
 
-    // ── Damage scaling (display HP ÷ 5 = vanilla HP) ──────────────────────────
- private static double scaleDamage(float force, double minDisplay, double midDisplay,
-                                  double maxDisplay) {
-    double base;
-    if (force < 0.5f) {
-        base = minDisplay + (midDisplay - minDisplay) * (force / 0.5);
-    } else {
-        base = midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
+    // ── Damage scaling ────────────────────────────────────────────────────────
+    private static double scaleDamage(float force, double min, double mid, double max) {
+        if (force < 0.5f) {
+            return min + (mid - min) * (force / 0.5);
+        } else {
+            return mid + (max - mid) * ((force - 0.5) / 0.5);
+        }
     }
-    return base; // lore number = exact damage passed to hit.damage()
-}
 
     // ── Eagle's Gaze ability ──────────────────────────────────────────────────
     public static void activateGaze(Player player, CustomItemsPlugin plugin) {
@@ -138,44 +131,25 @@ public class EaglesEyeBow {
     }
 
     // ── Arrow shoot ───────────────────────────────────────────────────────────
-public static void onArrowShoot(Player player, Arrow arrow, float force,
-                                ItemStack bow, CustomItemsPlugin plugin) {
-    UUID uuid = player.getUniqueId();
-    int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
+    public static void onArrowShoot(Player player, Arrow arrow, float force,
+                                    ItemStack bow, CustomItemsPlugin plugin) {
+        UUID uuid = player.getUniqueId();
+        int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-    arrow.setDamage(0.0); // ← cancel ALL vanilla arrow damage
-    arrow.setMetadata(META_EAGLES_EYE,
-            new FixedMetadataValue(plugin, uuid.toString()));
-
-    if (Boolean.TRUE.equals(armed.get(uuid))) {
-        armed.remove(uuid);
-        arrow.setMetadata(META_GAZE_ARROW,
+        arrow.setDamage(0.0); // cancel all vanilla arrow damage
+        arrow.setMetadata(META_EAGLES_EYE,
                 new FixedMetadataValue(plugin, uuid.toString()));
-        arrow.setMetadata(META_NORMAL_DAMAGE,
-                new FixedMetadataValue(plugin, encodeForcePower(force, power)));
-        player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
-        return;
-    }
 
-    LivingEntity target = markedTargets.get(uuid);
-    if (target != null && !target.isDead()
-            && System.currentTimeMillis() < markExpiry.getOrDefault(uuid, 0L)) {
-        arrow.setMetadata(META_HOMING_ARROW,
-                new FixedMetadataValue(plugin, uuid.toString()));
-        arrow.setMetadata(META_NORMAL_DAMAGE,
-                new FixedMetadataValue(plugin, encodeForcePower(force, power)));
-        homingArrows.add(arrow.getUniqueId());
-        startHomingTask(arrow, target, plugin);
-        return;
-    }
-
-    double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
-    double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
-    double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
-    double damage = scaleDamage(force, nMin, nMid, nMax);
-    arrow.setMetadata(META_NORMAL_DAMAGE,
-            new FixedMetadataValue(plugin, damage));
-}
+        // Gaze marking shot
+        if (Boolean.TRUE.equals(armed.get(uuid))) {
+            armed.remove(uuid);
+            arrow.setMetadata(META_GAZE_ARROW,
+                    new FixedMetadataValue(plugin, uuid.toString()));
+            arrow.setMetadata(META_NORMAL_DAMAGE,
+                    new FixedMetadataValue(plugin, encodeForcePower(force, power)));
+            player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
+            return;
+        }
 
         // Homing shot — target already marked
         LivingEntity target = markedTargets.get(uuid);
@@ -219,10 +193,10 @@ public static void onArrowShoot(Player player, Arrow arrow, float force,
             double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
             double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
             double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
-            // Gaze first hit = 2× normal
-            hit.damage(scaleDamage(force, nMin * GAZE_MULTIPLIER,
-                                         nMid * GAZE_MULTIPLIER,
-                                         nMax * GAZE_MULTIPLIER), shooter);
+            hit.damage(scaleDamage(force,
+                    nMin * GAZE_MULTIPLIER,
+                    nMid * GAZE_MULTIPLIER,
+                    nMax * GAZE_MULTIPLIER), shooter);
 
             shooter.sendMessage("\u00a76\u00a7lTarget marked! \u00a7fAll arrows home for 10 seconds.");
             shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_ARROW_HIT, 1f, 0.5f);
@@ -246,11 +220,11 @@ public static void onArrowShoot(Player player, Arrow arrow, float force,
             double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
             double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
             double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
-            // Homing arrows during gaze = 2× normal
             arrow.remove();
-            hit.damage(scaleDamage(force, nMin * GAZE_MULTIPLIER,
-                                         nMid * GAZE_MULTIPLIER,
-                                         nMax * GAZE_MULTIPLIER), shooter);
+            hit.damage(scaleDamage(force,
+                    nMin * GAZE_MULTIPLIER,
+                    nMid * GAZE_MULTIPLIER,
+                    nMax * GAZE_MULTIPLIER), shooter);
             return;
         }
 

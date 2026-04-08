@@ -138,24 +138,44 @@ public class EaglesEyeBow {
     }
 
     // ── Arrow shoot ───────────────────────────────────────────────────────────
-    public static void onArrowShoot(Player player, Arrow arrow, float force,
-                                    ItemStack bow, CustomItemsPlugin plugin) {
-        UUID uuid = player.getUniqueId();
-        int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
+public static void onArrowShoot(Player player, Arrow arrow, float force,
+                                ItemStack bow, CustomItemsPlugin plugin) {
+    UUID uuid = player.getUniqueId();
+    int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        arrow.setMetadata(META_EAGLES_EYE,
+    arrow.setDamage(0.0); // ← cancel ALL vanilla arrow damage
+    arrow.setMetadata(META_EAGLES_EYE,
+            new FixedMetadataValue(plugin, uuid.toString()));
+
+    if (Boolean.TRUE.equals(armed.get(uuid))) {
+        armed.remove(uuid);
+        arrow.setMetadata(META_GAZE_ARROW,
                 new FixedMetadataValue(plugin, uuid.toString()));
+        arrow.setMetadata(META_NORMAL_DAMAGE,
+                new FixedMetadataValue(plugin, encodeForcePower(force, power)));
+        player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
+        return;
+    }
 
-        // Gaze marking shot
-        if (Boolean.TRUE.equals(armed.get(uuid))) {
-            armed.remove(uuid);
-            arrow.setMetadata(META_GAZE_ARROW,
-                    new FixedMetadataValue(plugin, uuid.toString()));
-            arrow.setMetadata(META_NORMAL_DAMAGE,
-                    new FixedMetadataValue(plugin, encodeForcePower(force, power)));
-            player.sendMessage("\u00a76Gaze arrow fired! Hit a target to mark them.");
-            return;
-        }
+    LivingEntity target = markedTargets.get(uuid);
+    if (target != null && !target.isDead()
+            && System.currentTimeMillis() < markExpiry.getOrDefault(uuid, 0L)) {
+        arrow.setMetadata(META_HOMING_ARROW,
+                new FixedMetadataValue(plugin, uuid.toString()));
+        arrow.setMetadata(META_NORMAL_DAMAGE,
+                new FixedMetadataValue(plugin, encodeForcePower(force, power)));
+        homingArrows.add(arrow.getUniqueId());
+        startHomingTask(arrow, target, plugin);
+        return;
+    }
+
+    double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
+    double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
+    double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
+    double damage = scaleDamage(force, nMin, nMid, nMax);
+    arrow.setMetadata(META_NORMAL_DAMAGE,
+            new FixedMetadataValue(plugin, damage));
+}
 
         // Homing shot — target already marked
         LivingEntity target = markedTargets.get(uuid);

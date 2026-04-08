@@ -18,11 +18,16 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
+    // These are DIRECT vanilla HP values — no conversion needed
+    // Min: 5 vanilla HP, Mid: 11 vanilla HP, Max: 16 vanilla HP
     private static final double BASE_NORMAL_MIN = 5.0;
     private static final double BASE_NORMAL_MID = 11.0;
     private static final double BASE_NORMAL_MAX = 16.0;
 
-    private static final double POWER_BONUS     = 1.0;
+    // Power X = +X vanilla HP per level
+    private static final double POWER_BONUS = 1.0;
+
+    // Eagle's Gaze = 2× normal damage
     private static final double GAZE_MULTIPLIER = 2.0;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
@@ -98,7 +103,8 @@ public class EaglesEyeBow {
                 && meta.getDisplayName().equals(BOW_NAME);
     }
 
-    // ── Damage scaling ────────────────────────────────────────────────────────
+    // ── Damage scaling ─────────────────────────────────────────────────────────
+    // Returns direct vanilla HP — no multiplication or division
     private static double scaleDamage(float force, double min, double mid, double max) {
         if (force < 0.5f) {
             return min + (mid - min) * (force / 0.5);
@@ -136,7 +142,8 @@ public class EaglesEyeBow {
         UUID uuid = player.getUniqueId();
         int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        arrow.setDamage(0.0); // cancel all vanilla arrow damage
+        // Kill ALL vanilla arrow damage — only our hit.damage() will apply
+        arrow.setDamage(0.0);
         arrow.setMetadata(META_EAGLES_EYE,
                 new FixedMetadataValue(plugin, uuid.toString()));
 

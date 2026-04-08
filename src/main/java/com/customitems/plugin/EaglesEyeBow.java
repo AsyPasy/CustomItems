@@ -103,7 +103,7 @@ public class EaglesEyeBow {
     }
 
     // ── Damage scaling (display HP ÷ 5 = vanilla HP) ──────────────────────────
-   private static double scaleDamage(float force, double minDisplay, double midDisplay,
+ private static double scaleDamage(float force, double minDisplay, double midDisplay,
                                   double maxDisplay) {
     double base;
     if (force < 0.5f) {
@@ -111,7 +111,7 @@ public class EaglesEyeBow {
     } else {
         base = midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
     }
-    return base * 2.0; // hearts → vanilla HP (1 heart = 2 vanilla HP)
+    return base; // lore number = exact damage passed to hit.damage()
 }
 
     // ── Eagle's Gaze ability ──────────────────────────────────────────────────

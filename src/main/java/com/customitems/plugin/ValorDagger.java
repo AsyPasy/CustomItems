@@ -19,25 +19,18 @@ import java.util.*;
 
 public class ValorDagger {
 
-    public static final String VALOR_DAGGER_NAME = "\u00a7f\u00a7lValor Dagger";
+    public static final String VALOR_DAGGER_NAME = "\u00a77\u00a7lValor Dagger";
 
     private static final int    BASE_TICKS        = 200;
     private static final double BUFF_RADIUS       = 10.0;
     private static final double HP_BONUS_PERCENT  = 0.05;
     private static final long   COOLDOWN_MS       = 60 * 1000L;
 
-    // Base: 5 display HP = 1.0 vanilla HP (NOT hearts — 5 HP = 0.5 hearts? 
-    // Wait: RPG 100 HP = 20 vanilla = 10 hearts. So 5 display HP = 1.0 vanilla HP)
-    // Crit: 8 display HP = 1.6 vanilla HP... 
-    // Per user: 2.5 vanilla hearts normal = 5 vanilla HP, 4 vanilla hearts crit = 8 vanilla HP
-    // But user also says "damage is 5" in display HP terms (5 display HP = 1.0 vanilla HP)
-    // Re-reading: "2.5 vanilla hearts = 5 vanilla HP" and display HP = vanilla HP × 5
-    // So 5 display HP = 1.0 vanilla HP. Crit 4 display HP = ... user said "4 hp" with crit
-    // User: "2.5 vanilla hearts without crit, 4hp with crit" — 4 HP display = 0.8 vanilla? No.
-    // Actually user means display HP system: base 5 display HP, crit 8 display HP (÷5 for vanilla)
-    public static final double BASE_DAMAGE       = 5.0 / 5.0;  // 5 display HP
-    public static final double CRIT_DAMAGE       = 8.0 / 5.0;  // 8 display HP  
-    public static final double SHARPNESS_BONUS   = 0.2 / 5.0;  // +0.2 display HP per level
+    // 2 vanilla hearts = 4 vanilla HP = 20 display HP
+    // 2.5 vanilla hearts = 5 vanilla HP = 25 display HP
+    public static final double BASE_DAMAGE       = 20.0 / 5.0;   // 4 vanilla HP
+    public static final double CRIT_DAMAGE       = 25.0 / 5.0;   // 5 vanilla HP
+    public static final double SHARPNESS_BONUS   = 0.2 / 5.0;    // +0.2 display HP per level
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -50,10 +43,10 @@ public class ValorDagger {
     }
 
     public static void applyMeta(ItemStack item) {
-        // Read current sharpness BEFORE touching meta
         int sharpness = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
-        double displayDmg = 5.0 + (sharpness * 0.2);
-        String dmgStr = fmt(displayDmg);
+        double displayBase = 20.0 + (sharpness * 0.2);
+        double displayCrit = 25.0 + (sharpness * 0.2);
+        String sharpNote = sharpness > 0 ? " \u00a77(Sharpness " + sharpness + ")" : "";
 
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return;
@@ -62,18 +55,21 @@ public class ValorDagger {
         meta.setCustomModelData(292387);
         meta.setUnbreakable(true);
         meta.setLore(List.of(
-            "\u00a77Damage: \u00a7a+" + dmgStr
-                + (sharpness > 0 ? " \u00a77(Sharpness " + sharpness + ")" : ""),
+            "\u00a77Damage: \u00a7a+" + fmt(displayBase)
+                + " \u00a77(\u00a7a+" + fmt(displayCrit) + "\u00a77 crit)" + sharpNote,
+            "",
+            "\u00a77Normal: \u00a7a" + fmt(displayBase) + " HP  "
+                + "\u00a77Crit: \u00a7a" + fmt(displayCrit) + " HP",
             "",
             "\u00a75Ability: \u00a7fRally \u00a7e\u00a7lRIGHT CLICK",
             "\u00a77Inspire yourself and nearby allies,",
             "\u00a77granting \u00a7fSpeed I\u00a77, \u00a7fJump Boost I\u00a77,",
             "\u00a77and \u00a7fStrength I \u00a77in a \u00a7f10 block\u00a77 radius.",
-            "\u00a7a\u00a7lCooldown: \u00a7260s"
+            "\u00a7a\u00a7lCooldown: \u00a7260s",
+            "",
+            "\u00a77\u00a7lSTARTER DAGGER"
         ));
 
-        // Adding custom AttributeModifiers forces the game to use these
-        // instead of vanilla defaults, so HIDE_ATTRIBUTES fully suppresses them
         meta.removeAttributeModifier(Attribute.GENERIC_ATTACK_DAMAGE);
         meta.removeAttributeModifier(Attribute.GENERIC_ATTACK_SPEED);
         meta.addAttributeModifier(Attribute.GENERIC_ATTACK_DAMAGE,

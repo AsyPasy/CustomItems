@@ -26,11 +26,11 @@ public class ValorDagger {
     private static final double HP_BONUS_PERCENT  = 0.05;
     private static final long   COOLDOWN_MS       = 60 * 1000L;
 
-    // 2 vanilla hearts = 4 vanilla HP = 20 display HP
-    // 2.5 vanilla hearts = 5 vanilla HP = 25 display HP
-    public static final double BASE_DAMAGE       = 20.0 / 5.0;   // 4 vanilla HP
-    public static final double CRIT_DAMAGE       = 25.0 / 5.0;   // 5 vanilla HP
-    public static final double SHARPNESS_BONUS   = 0.2 / 5.0;    // +0.2 display HP per level
+    // 2 vanilla hearts   = 4 vanilla HP
+    // 2.5 vanilla hearts = 5 vanilla HP
+    public static final double BASE_DAMAGE     = 4.0;
+    public static final double CRIT_DAMAGE     = 5.0;
+    public static final double SHARPNESS_BONUS = 0.2;
 
     private static final Map<UUID, Long>   cooldowns  = new HashMap<>();
     private static final Map<UUID, Double> hpBonusMap = new HashMap<>();
@@ -44,8 +44,8 @@ public class ValorDagger {
 
     public static void applyMeta(ItemStack item) {
         int sharpness = item.getEnchantmentLevel(Enchantment.DAMAGE_ALL);
-        double displayBase = 20.0 + (sharpness * 0.2);
-        double displayCrit = 25.0 + (sharpness * 0.2);
+        double displayBase = BASE_DAMAGE + (sharpness * SHARPNESS_BONUS);
+        double displayCrit = CRIT_DAMAGE + (sharpness * SHARPNESS_BONUS);
         String sharpNote = sharpness > 0 ? " \u00a77(Sharpness " + sharpness + ")" : "";
 
         ItemMeta meta = item.getItemMeta();
@@ -58,8 +58,8 @@ public class ValorDagger {
             "\u00a77Damage: \u00a7a+" + fmt(displayBase)
                 + " \u00a77(\u00a7a+" + fmt(displayCrit) + "\u00a77 crit)" + sharpNote,
             "",
-            "\u00a77Normal: \u00a7a" + fmt(displayBase) + " HP  "
-                + "\u00a77Crit: \u00a7a" + fmt(displayCrit) + " HP",
+            "\u00a77Normal: \u00a7a" + fmt(displayBase)
+                + " HP  \u00a77Crit: \u00a7a" + fmt(displayCrit) + " HP",
             "",
             "\u00a75Ability: \u00a7fRally \u00a7e\u00a7lRIGHT CLICK",
             "\u00a77Inspire yourself and nearby allies,",
@@ -205,7 +205,6 @@ public class ValorDagger {
         }.runTaskTimer(plugin, 0L, 1L);
     }
 
-    // ── Format helper ─────────────────────────────────────────────────────────
     static String fmt(double val) {
         if (val == Math.floor(val)) return String.valueOf((int) val);
         return String.format("%.1f", val);

@@ -24,7 +24,7 @@ public class EaglesEyeBow {
     private static final double BASE_NORMAL_MID = 11.0;
     private static final double BASE_NORMAL_MAX = 16.0;
 
-    // Gaze (2×): min 10 / mid 22 / max 32 vanilla HP
+    // Gaze (2x): min 10 / mid 22 / max 32 vanilla HP
     private static final double BASE_GAZE_MIN   = 10.0;
     private static final double BASE_GAZE_MID   = 22.0;
     private static final double BASE_GAZE_MAX   = 32.0;
@@ -57,7 +57,7 @@ public class EaglesEyeBow {
     public static void applyMeta(ItemStack item) {
         int power = item.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        // Lore values are vanilla HP — exactly what the event damage will be set to
+        // Lore values are vanilla HP — exactly what hit.damage() will apply
         double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
         double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
         double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
@@ -180,9 +180,13 @@ public class EaglesEyeBow {
     }
 
     /**
-     * Called from ItemListener via event.setDamage().
-     * Returns the vanilla HP damage to apply via event.setDamage(),
-     * OR -1 if this is a gaze arrow (side effects handled internally, event must be cancelled).
+     * Computes the damage this arrow should deal and handles all side effects
+     * (marking, glowing, cooldown, messages). Does NOT call hit.damage() or
+     * arrow.remove() — the caller (ItemListener) owns those.
+     *
+     * Metadata is read BEFORE the caller removes the arrow.
+     *
+     * @return vanilla HP to deal via hit.damage(damage, shooter)
      */
     public static double calculateArrowDamage(Arrow arrow, LivingEntity hit,
                                               Player shooter, CustomItemsPlugin plugin) {
@@ -190,22 +194,18 @@ public class EaglesEyeBow {
 
         // ── Gaze marking arrow ────────────────────────────────────────────────
         if (arrow.hasMetadata(META_GAZE_ARROW)) {
-            arrow.remove();
+            // Read stored force+power before doing anything else
+            double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
+            float  force  = decodedForce(stored);
+            int    power  = decodedPower(stored);
+
+            // Mark the target
             markedTargets.put(uuid, hit);
             markExpiry.put(uuid, System.currentTimeMillis() + MARK_DURATION_MS);
             gazeCooldowns.put(uuid, System.currentTimeMillis());
             hit.addPotionEffect(new PotionEffect(
                     PotionEffectType.GLOWING,
                     (int)(MARK_DURATION_MS / 50L), 0, false, false));
-
-            double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
-            float  force  = decodedForce(stored);
-            int    power  = decodedPower(stored);
-            double gMin = BASE_GAZE_MIN + (power * POWER_BONUS);
-            double gMid = BASE_GAZE_MID + (power * POWER_BONUS);
-            double gMax = BASE_GAZE_MAX + (power * POWER_BONUS);
-
-            double gazeDamage = scaleDamage(force, gMin, gMid, gMax);
 
             shooter.sendMessage("\u00a76\u00a7lTarget marked! \u00a7fAll arrows home for 10 seconds.");
             shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_ARROW_HIT, 1f, 0.5f);
@@ -219,14 +219,15 @@ public class EaglesEyeBow {
                 }
             }.runTaskLater(plugin, MARK_DURATION_MS / 50L);
 
-            // Gaze arrow: we handle damage via event.setDamage() too — return the value
-            return gazeDamage;
+            double gMin = BASE_GAZE_MIN + (power * POWER_BONUS);
+            double gMid = BASE_GAZE_MID + (power * POWER_BONUS);
+            double gMax = BASE_GAZE_MAX + (power * POWER_BONUS);
+            return scaleDamage(force, gMin, gMid, gMax);
         }
 
         // ── Homing arrow ──────────────────────────────────────────────────────
         if (arrow.hasMetadata(META_HOMING_ARROW)) {
             homingArrows.remove(arrow.getUniqueId());
-            arrow.remove();
             double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
             float  force  = decodedForce(stored);
             int    power  = decodedPower(stored);
@@ -238,7 +239,6 @@ public class EaglesEyeBow {
 
         // ── Normal arrow ──────────────────────────────────────────────────────
         if (arrow.hasMetadata(META_NORMAL_DAMAGE)) {
-            arrow.remove();
             return (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
         }
 

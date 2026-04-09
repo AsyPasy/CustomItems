@@ -19,7 +19,7 @@ public class ItemListener implements Listener {
         this.plugin = plugin;
     }
 
-    // ── Right-click ───────────────────────────────────────────────────────────
+    // Right-click
     @EventHandler
     public void onPlayerInteract(PlayerInteractEvent event) {
         if (event.getAction() != Action.RIGHT_CLICK_AIR
@@ -38,7 +38,7 @@ public class ItemListener implements Listener {
         }
     }
 
-    // ── Valor Dagger melee damage ─────────────────────────────────────────────
+    // Valor Dagger melee damage
     @EventHandler(priority = EventPriority.HIGH)
     public void onValorDaggerHit(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Player player)) return;
@@ -47,7 +47,7 @@ public class ItemListener implements Listener {
         event.setDamage(ValorDagger.calculateDamage(held, ValorDagger.isCriticalHit(player)));
     }
 
-    // ── Eagle's Eye Bow shoot ─────────────────────────────────────────────────
+    // Eagle's Eye Bow shoot
     @EventHandler
     public void onBowShoot(EntityShootBowEvent event) {
         if (!(event.getEntity() instanceof Player player)) return;
@@ -58,26 +58,41 @@ public class ItemListener implements Listener {
         EaglesEyeBow.onArrowShoot(player, arrow, event.getForce(), bow, plugin);
     }
 
-    // ── Eagle's Eye arrow hits entity ─────────────────────────────────────────
+    // Eagle's Eye arrow hits entity
+    //
+    // WHY 1-TICK DELAY:
+    // In Paper 1.20, event.setDamage(BASE) is unreliable because Paper pre-calculates
+    // velocity-based modifier slots independently of BASE. Setting BASE=16 leaves
+    // those modifier values intact, making final damage = 16 + modifiers > 16.
+    //
+    // Fix: cancel the vanilla event, then fire hit.damage(damage, shooter) 1 tick later.
+    // That is a fresh EntityDamageByEntityEvent with Player as damager and our exact value.
+    // - Our arrow handler ignores it (damager is not an Arrow)
+    // - ValorDagger handler ignores it (player not holding a dagger)
+    // Result: precise damage every time, and player gets proper kill credit.
     @EventHandler(priority = EventPriority.HIGH)
     public void onArrowHitEntity(EntityDamageByEntityEvent event) {
         if (!(event.getDamager() instanceof Arrow arrow)) return;
         if (!(arrow.getShooter() instanceof Player shooter)) return;
         if (!(event.getEntity() instanceof LivingEntity hit)) return;
         if (!arrow.hasMetadata(EaglesEyeBow.META_EAGLES_EYE)) return;
-        // Set damage directly on the event — never call hit.damage() separately,
-        // as that fires a second EntityDamageByEntityEvent and causes double damage.
+
+        event.setCancelled(true);
+
+        // Read damage and handle all side effects BEFORE removing the arrow
         double damage = EaglesEyeBow.calculateArrowDamage(arrow, hit, shooter, plugin);
-        if (damage < 0) {
-            event.setCancelled(true); // gaze arrow: damage already handled inside
-        } else {
-            event.setDamage(damage);
-        }
+        arrow.remove();
+
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (hit.isValid() && !hit.isDead()) {
+                hit.damage(damage, shooter);
+            }
+        }, 1L);
     }
 
-    // ── Crafting: Valor Dagger ────────────────────────────────────────────────
+    // Crafting: Valor Dagger
     // [ ] [N] [ ]
-    // [N] [G×12] [N]
+    // [N] [G*12] [N]
     // [ ] [S] [ ]
     @EventHandler
     public void onPrepareCraft(PrepareItemCraftEvent event) {
@@ -103,7 +118,6 @@ public class ItemListener implements Listener {
         ItemStack[] m = event.getInventory().getMatrix();
         if (m.length != 9) return;
 
-        // Consume extra 11 gold ingots for Valor Dagger
         if (ValorDagger.isValorDagger(result)) {
             ItemStack center = m[4];
             if (center != null && center.getType() == Material.GOLD_INGOT
@@ -115,7 +129,7 @@ public class ItemListener implements Listener {
         }
     }
 
-    // ── Re-apply flags after enchanting table ─────────────────────────────────
+    // Re-apply flags after enchanting table
     @EventHandler
     public void onEnchant(EnchantItemEvent event) {
         ItemStack item = event.getItem();
@@ -125,7 +139,7 @@ public class ItemListener implements Listener {
         }, 1L);
     }
 
-    // ── Re-apply flags after anvil ────────────────────────────────────────────
+    // Re-apply flags after anvil
     @EventHandler
     public void onAnvil(PrepareAnvilEvent event) {
         ItemStack result = event.getResult();
@@ -134,12 +148,8 @@ public class ItemListener implements Listener {
         if (EaglesEyeBow.isEaglesEyeBow(result)) EaglesEyeBow.applyMeta(result);
     }
 
-    // ── Pattern validators ────────────────────────────────────────────────────
+    // Pattern validators
 
-    // Valor Dagger:
-    // [ ] [N] [ ]
-    // [N] [G×12] [N]
-    // [ ] [S] [ ]
     private boolean isValorDaggerPattern(ItemStack[] m) {
         return empty(m[0]) && is(m[1], Material.IRON_NUGGET) && empty(m[2])
             && is(m[3], Material.IRON_NUGGET)
@@ -148,17 +158,12 @@ public class ItemListener implements Listener {
             && empty(m[6]) && is(m[7], Material.STICK) && empty(m[8]);
     }
 
-    // Eagle's Eye Bow:
-    // [ ] [E] [ ]
-    // [S] [B] [S]
-    // [ ] [E] [ ]
-    // E = Eagle's Eye, B = Bow, S = String
     private boolean isEaglesBowPattern(ItemStack[] m) {
-        return empty(m[0]) && isEye(m[1])            && empty(m[2])
+        return empty(m[0]) && isEye(m[1])  && empty(m[2])
             && is(m[3], Material.STRING)
             && is(m[4], Material.BOW)
             && is(m[5], Material.STRING)
-            && empty(m[6]) && isEye(m[7])            && empty(m[8]);
+            && empty(m[6]) && isEye(m[7])  && empty(m[8]);
     }
 
     private boolean wouldMatchEither(ItemStack result) {

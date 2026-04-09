@@ -18,17 +18,18 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // These are DIRECT vanilla HP values — no conversion needed
-    // Min: 5 vanilla HP, Mid: 11 vanilla HP, Max: 16 vanilla HP
+    // Base normal damage (display HP)
     private static final double BASE_NORMAL_MIN = 5.0;
     private static final double BASE_NORMAL_MID = 11.0;
     private static final double BASE_NORMAL_MAX = 16.0;
 
-    // Power X = +X vanilla HP per level
-    private static final double POWER_BONUS = 1.0;
+    // Base gaze damage = 2x normal (display HP)
+    private static final double BASE_GAZE_MIN   = 10.0;
+    private static final double BASE_GAZE_MID   = 22.0;
+    private static final double BASE_GAZE_MAX   = 32.0;
 
-    // Eagle's Gaze = 2× normal damage
-    private static final double GAZE_MULTIPLIER = 2.0;
+    // +1.0 display HP per Power level, applied to each tier
+    private static final double POWER_BONUS     = 1.0;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
     private static final long MARK_DURATION_MS = 10 * 1000L;
@@ -53,16 +54,17 @@ public class EaglesEyeBow {
     }
 
     public static void applyMeta(ItemStack item) {
+        // Read current Power level BEFORE touching meta
         int power = item.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
+        // Calculate display HP values for lore
         double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
         double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
         double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
-        double gMin = nMin * GAZE_MULTIPLIER;
-        double gMid = nMid * GAZE_MULTIPLIER;
-        double gMax = nMax * GAZE_MULTIPLIER;
+        double gMin = BASE_GAZE_MIN   + (power * POWER_BONUS);
+        double gMid = BASE_GAZE_MID   + (power * POWER_BONUS);
+        double gMax = BASE_GAZE_MAX   + (power * POWER_BONUS);
 
-        String powerNote = power > 0 ? " \u00a77(Power " + power + ")" : "";
 
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return;
@@ -72,7 +74,8 @@ public class EaglesEyeBow {
         meta.setUnbreakable(true);
         meta.setLore(List.of(
             "\u00a77Damage: \u00a7a+" + ValorDagger.fmt(nMin)
-                + " \u00a77(\u00a7a+" + ValorDagger.fmt(nMax) + "\u00a77 max draw)" + powerNote,
+                + " \u00a77(\u00a7a+" + ValorDagger.fmt(nMax) + "\u00a77 max draw)"
+                + (power > 0 ? " \u00a77(Power " + power + ": \u00a7a+" + ValorDagger.fmt(power * POWER_BONUS) + " HP\u00a77 per tier)" : ""),
             "",
             "\u00a77Scales with draw-back:",
             "\u00a77Min: \u00a7a" + ValorDagger.fmt(nMin)
@@ -82,7 +85,7 @@ public class EaglesEyeBow {
             "\u00a75Ability: \u00a76Eagle\u2019s Gaze \u00a7e\u00a7lSNEAK + RIGHT CLICK",
             "\u00a77Mark your next target. For \u00a7610 seconds\u00a77",
             "\u00a77all arrows home in on the marked target.",
-            "\u00a77Gaze damage: \u00a7a" + ValorDagger.fmt(gMin)
+            "\u00a77Gaze damage \u00a7e(2\u00d7)\u00a77: \u00a7a" + ValorDagger.fmt(gMin)
                 + " / " + ValorDagger.fmt(gMid)
                 + " / " + ValorDagger.fmt(gMax) + " HP",
             "\u00a7a\u00a7lCooldown: \u00a7260s",
@@ -103,14 +106,16 @@ public class EaglesEyeBow {
                 && meta.getDisplayName().equals(BOW_NAME);
     }
 
-    // ── Damage scaling ─────────────────────────────────────────────────────────
-    // Returns direct vanilla HP — no multiplication or division
-    private static double scaleDamage(float force, double min, double mid, double max) {
+    // ── Damage scaling (display HP ÷ 5 = vanilla HP) ──────────────────────────
+    private static double scaleDamage(float force, double minDisplay, double midDisplay,
+                                      double maxDisplay) {
+        double base;
         if (force < 0.5f) {
-            return min + (mid - min) * (force / 0.5);
+            base = minDisplay + (midDisplay - minDisplay) * (force / 0.5);
         } else {
-            return mid + (max - mid) * ((force - 0.5) / 0.5);
+            base = midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
         }
+        return base / 5.0; // convert display HP to vanilla HP
     }
 
     // ── Eagle's Gaze ability ──────────────────────────────────────────────────
@@ -142,8 +147,6 @@ public class EaglesEyeBow {
         UUID uuid = player.getUniqueId();
         int power = bow.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        // Kill ALL vanilla arrow damage — only our hit.damage() will apply
-        arrow.setDamage(0.0);
         arrow.setMetadata(META_EAGLES_EYE,
                 new FixedMetadataValue(plugin, uuid.toString()));
 
@@ -197,13 +200,10 @@ public class EaglesEyeBow {
             double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
             float  force  = decodedForce(stored);
             int    power  = decodedPower(stored);
-            double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
-            double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
-            double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
-            hit.damage(scaleDamage(force,
-                    nMin * GAZE_MULTIPLIER,
-                    nMid * GAZE_MULTIPLIER,
-                    nMax * GAZE_MULTIPLIER), shooter);
+            double gMin = BASE_GAZE_MIN + (power * POWER_BONUS);
+            double gMid = BASE_GAZE_MID + (power * POWER_BONUS);
+            double gMax = BASE_GAZE_MAX + (power * POWER_BONUS);
+            hit.damage(scaleDamage(force, gMin, gMid, gMax), shooter);
 
             shooter.sendMessage("\u00a76\u00a7lTarget marked! \u00a7fAll arrows home for 10 seconds.");
             shooter.getWorld().playSound(shooter.getLocation(), Sound.ENTITY_ARROW_HIT, 1f, 0.5f);
@@ -224,14 +224,11 @@ public class EaglesEyeBow {
             double stored = (double) arrow.getMetadata(META_NORMAL_DAMAGE).get(0).value();
             float  force  = decodedForce(stored);
             int    power  = decodedPower(stored);
-            double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
-            double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
-            double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
+            double gMin = BASE_GAZE_MIN + (power * POWER_BONUS);
+            double gMid = BASE_GAZE_MID + (power * POWER_BONUS);
+            double gMax = BASE_GAZE_MAX + (power * POWER_BONUS);
             arrow.remove();
-            hit.damage(scaleDamage(force,
-                    nMin * GAZE_MULTIPLIER,
-                    nMid * GAZE_MULTIPLIER,
-                    nMax * GAZE_MULTIPLIER), shooter);
+            hit.damage(scaleDamage(force, gMin, gMid, gMax), shooter);
             return;
         }
 

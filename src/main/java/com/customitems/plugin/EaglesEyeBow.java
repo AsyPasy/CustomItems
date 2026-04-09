@@ -18,18 +18,18 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // Base normal damage (display HP)
-    private static final double BASE_NORMAL_MIN = 5.0;
-    private static final double BASE_NORMAL_MID = 11.0;
-    private static final double BASE_NORMAL_MAX = 16.0;
+    // Base normal damage (vanilla HP = display HP)
+    private static final double BASE_NORMAL_MIN = 1.0;
+    private static final double BASE_NORMAL_MID = 2.2;
+    private static final double BASE_NORMAL_MAX = 3.2;
 
-    // Base gaze damage = 2x normal (display HP)
-    private static final double BASE_GAZE_MIN   = 10.0;
-    private static final double BASE_GAZE_MID   = 22.0;
-    private static final double BASE_GAZE_MAX   = 32.0;
+    // Base gaze damage = 2x normal (vanilla HP = display HP)
+    private static final double BASE_GAZE_MIN   = 2.0;
+    private static final double BASE_GAZE_MID   = 4.4;
+    private static final double BASE_GAZE_MAX   = 6.4;
 
-    // +1.0 display HP per Power level, applied to each tier
-    private static final double POWER_BONUS     = 1.0;
+    // +0.2 HP per Power level, applied to each tier
+    private static final double POWER_BONUS     = 0.2;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
     private static final long MARK_DURATION_MS = 10 * 1000L;
@@ -57,7 +57,7 @@ public class EaglesEyeBow {
         // Read current Power level BEFORE touching meta
         int power = item.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        // Calculate display HP values for lore
+        // Calculate HP values for lore (display HP = vanilla HP)
         double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
         double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
         double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
@@ -106,7 +106,7 @@ public class EaglesEyeBow {
                 && meta.getDisplayName().equals(BOW_NAME);
     }
 
-    // ── Damage scaling (display HP ÷ 5 = vanilla HP) ──────────────────────────
+    // ── Damage scaling (display HP = vanilla HP) ───────────────────────────────
     private static double scaleDamage(float force, double minDisplay, double midDisplay,
                                       double maxDisplay) {
         if (force < 0.5f) {

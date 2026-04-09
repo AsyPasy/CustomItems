@@ -65,8 +65,14 @@ public class ItemListener implements Listener {
         if (!(arrow.getShooter() instanceof Player shooter)) return;
         if (!(event.getEntity() instanceof LivingEntity hit)) return;
         if (!arrow.hasMetadata(EaglesEyeBow.META_EAGLES_EYE)) return;
-        event.setCancelled(true);
-        EaglesEyeBow.onArrowHitEntity(arrow, hit, shooter, plugin);
+        // Set damage directly on the event — never call hit.damage() separately,
+        // as that fires a second EntityDamageByEntityEvent and causes double damage.
+        double damage = EaglesEyeBow.calculateArrowDamage(arrow, hit, shooter, plugin);
+        if (damage < 0) {
+            event.setCancelled(true); // gaze arrow: damage already handled inside
+        } else {
+            event.setDamage(damage);
+        }
     }
 
     // ── Crafting: Valor Dagger ────────────────────────────────────────────────

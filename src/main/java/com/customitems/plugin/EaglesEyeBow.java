@@ -18,18 +18,19 @@ public class EaglesEyeBow {
 
     public static final String BOW_NAME = "\u00a76\u00a7lEagle\u2019s Eye";
 
-    // Base normal damage (vanilla HP = display HP)
-    private static final double BASE_NORMAL_MIN = 1.0;
-    private static final double BASE_NORMAL_MID = 2.2;
-    private static final double BASE_NORMAL_MAX = 3.2;
+    // All values are vanilla HP.
+    // Normal: min 5 / mid 11 / max 16 vanilla HP
+    private static final double BASE_NORMAL_MIN = 5.0;
+    private static final double BASE_NORMAL_MID = 11.0;
+    private static final double BASE_NORMAL_MAX = 16.0;
 
-    // Base gaze damage = 2x normal (vanilla HP = display HP)
-    private static final double BASE_GAZE_MIN   = 2.0;
-    private static final double BASE_GAZE_MID   = 4.4;
-    private static final double BASE_GAZE_MAX   = 6.4;
+    // Gaze (2×): min 10 / mid 22 / max 32 vanilla HP
+    private static final double BASE_GAZE_MIN   = 10.0;
+    private static final double BASE_GAZE_MID   = 22.0;
+    private static final double BASE_GAZE_MAX   = 32.0;
 
-    // +0.2 HP per Power level, applied to each tier
-    private static final double POWER_BONUS     = 0.2;
+    // +1 vanilla HP per Power level, applied to each tier
+    private static final double POWER_BONUS     = 1.0;
 
     private static final long GAZE_COOLDOWN_MS = 60 * 1000L;
     private static final long MARK_DURATION_MS = 10 * 1000L;
@@ -54,17 +55,15 @@ public class EaglesEyeBow {
     }
 
     public static void applyMeta(ItemStack item) {
-        // Read current Power level BEFORE touching meta
         int power = item.getEnchantmentLevel(Enchantment.ARROW_DAMAGE);
 
-        // Calculate HP values for lore (display HP = vanilla HP)
+        // Lore values are vanilla HP — exactly what hit.damage() will deal
         double nMin = BASE_NORMAL_MIN + (power * POWER_BONUS);
         double nMid = BASE_NORMAL_MID + (power * POWER_BONUS);
         double nMax = BASE_NORMAL_MAX + (power * POWER_BONUS);
         double gMin = BASE_GAZE_MIN   + (power * POWER_BONUS);
         double gMid = BASE_GAZE_MID   + (power * POWER_BONUS);
         double gMax = BASE_GAZE_MAX   + (power * POWER_BONUS);
-
 
         ItemMeta meta = item.getItemMeta();
         if (meta == null) return;
@@ -74,7 +73,7 @@ public class EaglesEyeBow {
         meta.setUnbreakable(true);
         meta.setLore(List.of(
             "\u00a77Damage: \u00a7a+" + ValorDagger.fmt(nMin)
-                + " \u00a77(\u00a7a+" + ValorDagger.fmt(nMax) + "\u00a77 max draw)"
+                + " HP \u00a77(\u00a7a+" + ValorDagger.fmt(nMax) + " HP\u00a77 max draw)"
                 + (power > 0 ? " \u00a77(Power " + power + ": \u00a7a+" + ValorDagger.fmt(power * POWER_BONUS) + " HP\u00a77 per tier)" : ""),
             "",
             "\u00a77Scales with draw-back:",
@@ -106,13 +105,12 @@ public class EaglesEyeBow {
                 && meta.getDisplayName().equals(BOW_NAME);
     }
 
-    // ── Damage scaling (display HP = vanilla HP) ───────────────────────────────
-    private static double scaleDamage(float force, double minDisplay, double midDisplay,
-                                      double maxDisplay) {
+    // ── Damage scaling (vanilla HP — lore matches exactly) ────────────────────
+    private static double scaleDamage(float force, double min, double mid, double max) {
         if (force < 0.5f) {
-            return minDisplay + (midDisplay - minDisplay) * (force / 0.5);
+            return min + (mid - min) * (force / 0.5);
         } else {
-            return midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
+            return mid + (max - mid) * ((force - 0.5) / 0.5);
         }
     }
 

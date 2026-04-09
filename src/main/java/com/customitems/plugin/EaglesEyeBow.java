@@ -109,13 +109,11 @@ public class EaglesEyeBow {
     // ── Damage scaling (display HP ÷ 5 = vanilla HP) ──────────────────────────
     private static double scaleDamage(float force, double minDisplay, double midDisplay,
                                       double maxDisplay) {
-        double base;
         if (force < 0.5f) {
-            base = minDisplay + (midDisplay - minDisplay) * (force / 0.5);
+            return minDisplay + (midDisplay - minDisplay) * (force / 0.5);
         } else {
-            base = midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
+            return midDisplay + (maxDisplay - midDisplay) * ((force - 0.5) / 0.5);
         }
-        return base / 5.0; // convert display HP to vanilla HP
     }
 
     // ── Eagle's Gaze ability ──────────────────────────────────────────────────
